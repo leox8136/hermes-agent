@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from hermes_cli.main import cmd_update
+from hermes_cli.update_target import DEFAULT_UPDATE_BRANCH
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +30,7 @@ def _isolate_update(isolated_update_runtime, monkeypatch):
 
 
 def _make_run_side_effect(
-    branch="main", verify_ok=True, commit_count="1", dirty=False
+    branch=DEFAULT_UPDATE_BRANCH, verify_ok=True, commit_count="1", dirty=False
 ):
     """Minimal subprocess.run side_effect for the update flow."""
 
@@ -82,7 +83,7 @@ class TestUpdateYesConfigMigration:
         capsys,
     ):
         mock_run.side_effect = _make_run_side_effect(
-            branch="main", verify_ok=True, commit_count="1"
+            branch=DEFAULT_UPDATE_BRANCH, verify_ok=True, commit_count="1"
         )
         mock_migrate.return_value = {"env_added": [], "config_added": []}
 
@@ -124,7 +125,7 @@ class TestUpdateYesConfigMigration:
     ):
         """Regression guard: without --yes, the TTY prompt path still fires."""
         mock_run.side_effect = _make_run_side_effect(
-            branch="main", verify_ok=True, commit_count="1"
+            branch=DEFAULT_UPDATE_BRANCH, verify_ok=True, commit_count="1"
         )
         mock_migrate.return_value = {"env_added": [], "config_added": []}
 
@@ -183,7 +184,7 @@ class TestUnicodeDecodeErrorInUpdatePrompts:
         capsys,
     ):
         mock_run.side_effect = _make_run_side_effect(
-            branch="main", verify_ok=True, commit_count="1"
+            branch=DEFAULT_UPDATE_BRANCH, verify_ok=True, commit_count="1"
         )
         mock_migrate.return_value = {"env_added": [], "config_added": []}
         args = SimpleNamespace(yes=False)

@@ -67,6 +67,8 @@ On Windows, a Desktop reopened during packaging is stopped again immediately bef
 
 For an existing installation that still uses the old default, perform the first upgrade with `hermes update --branch current-ops`. Once this fork version is installed, plain `hermes update` and `hermes update --check` use the operations channel. The Windows ZIP fallback also downloads from this fork.
 
+The Desktop app also defaults to `current-ops` and explicitly passes its selected branch to both updater handoff paths. A saved branch selection remains in effect. If the remote confirms that a selected custom branch was deleted, Desktop resets the selection to `current-ops`; network failures do not change it. Desktop uses the checkout's `origin`, so it must point to this fork as described below.
+
 In this operations fork, `hermes update` defaults to `origin/current-ops`. The deployment checkout must have `origin` pointing to `https://github.com/leox8136/hermes-agent.git`. Default updates do not synchronize the official repository. Pass `--branch <name>` to update against a different branch — useful for QA channels, feature branches, or release-candidate testing:
 
 ```bash

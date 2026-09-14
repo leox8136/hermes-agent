@@ -8,6 +8,7 @@ import pytest
 from hermes_cli import config as hermes_config
 from hermes_cli import main as hermes_main
 from hermes_cli import update_cmd
+from hermes_cli.update_target import DEFAULT_UPDATE_BRANCH
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@ def _patch_managed_uv(request):
 
 
 @pytest.fixture(autouse=True)
-def _patch_gateway_discovery():
+def _patch_gateway_discovery(isolated_update_runtime):
     """Keep cmd_update's gateway auto-restart phase off this machine's gateways.
 
     Tests in this file that reach the full success path (e.g. the #87694
@@ -270,7 +271,7 @@ def test_cmd_update_skips_stash_restore_when_reset_fails(monkeypatch, tmp_path, 
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
     with pytest.raises(SystemExit, match="1"):
-        hermes_main.cmd_update(SimpleNamespace())
+        hermes_main.cmd_update(SimpleNamespace(branch="main"))
 
     # Stash restore should NOT have been called
     assert len(restore_calls) == 0
@@ -294,7 +295,7 @@ def test_cmd_update_orphan_history_backs_up_before_reset(monkeypatch, tmp_path, 
     )
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
-    hermes_main.cmd_update(SimpleNamespace())
+    hermes_main.cmd_update(SimpleNamespace(branch="main"))
 
     update_ref_calls = [c for c in recorded if "update-ref" in " ".join(str(x) for x in c)]
     assert len(update_ref_calls) == 1
@@ -324,7 +325,7 @@ def test_cmd_update_orphan_rescue_ref_write_failure_message_is_honest(monkeypatc
     )
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
-    hermes_main.cmd_update(SimpleNamespace())
+    hermes_main.cmd_update(SimpleNamespace(branch="main"))
 
     out = capsys.readouterr().out
     assert "orphan divergence" in out
@@ -353,7 +354,7 @@ def test_cmd_update_orphan_rescue_refs_pruned_beyond_keep_limit(monkeypatch, tmp
     )
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
-    hermes_main.cmd_update(SimpleNamespace())
+    hermes_main.cmd_update(SimpleNamespace(branch="main"))
 
     delete_calls = [
         c for c in recorded
@@ -390,7 +391,7 @@ def test_cmd_update_orphan_rescue_refs_expired_by_age(monkeypatch, tmp_path, cap
     )
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
-    hermes_main.cmd_update(SimpleNamespace())
+    hermes_main.cmd_update(SimpleNamespace(branch="main"))
 
     delete_calls = [
         c for c in recorded
@@ -432,7 +433,7 @@ def test_cmd_update_ordinary_divergence_skips_rescue_ref(monkeypatch, tmp_path, 
     )
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
-    hermes_main.cmd_update(SimpleNamespace())
+    hermes_main.cmd_update(SimpleNamespace(branch="main"))
 
     update_ref_calls = [c for c in recorded if "update-ref" in " ".join(str(x) for x in c)]
     assert update_ref_calls == []
@@ -453,7 +454,7 @@ def test_cmd_update_orphan_rescue_ref_write_failure_is_non_fatal(monkeypatch, tm
     )
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
-    hermes_main.cmd_update(SimpleNamespace())
+    hermes_main.cmd_update(SimpleNamespace(branch="main"))
 
     update_ref_calls = [c for c in recorded if "update-ref" in " ".join(str(x) for x in c)]
     assert len(update_ref_calls) == 1
@@ -482,7 +483,7 @@ def test_cmd_update_orphan_guard_skips_rescue_ref_when_pre_pull_sha_missing(
     )
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
-    hermes_main.cmd_update(SimpleNamespace())
+    hermes_main.cmd_update(SimpleNamespace(branch="main"))
 
     update_ref_calls = [c for c in recorded if "update-ref" in " ".join(str(x) for x in c)]
     assert update_ref_calls == []
@@ -503,7 +504,7 @@ def test_cmd_update_orphan_rescue_ref_persists_when_reset_fails(monkeypatch, tmp
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
     with pytest.raises(SystemExit) as exc_info:
-        hermes_main.cmd_update(SimpleNamespace())
+        hermes_main.cmd_update(SimpleNamespace(branch="main"))
     assert exc_info.value.code == 1
 
     update_ref_calls = [c for c in recorded if "update-ref" in " ".join(str(x) for x in c)]
@@ -591,7 +592,7 @@ def test_update_keep_stash_parks_instead_of_restoring(monkeypatch, tmp_path):
     """--keep-stash: after a successful update, the autostash is parked (left
     in git stash) — never re-applied, never discarded."""
     restore_calls, discard_calls, park_calls = _setup_keep_stash_test(monkeypatch, tmp_path)
-    side_effect, _ = _make_update_side_effect()
+    side_effect, _ = _make_update_side_effect(current_branch=DEFAULT_UPDATE_BRANCH)
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
     hermes_main.cmd_update(SimpleNamespace(yes=True, keep_stash=True))
@@ -606,7 +607,7 @@ def test_update_without_keep_stash_still_restores(monkeypatch, tmp_path):
     """Regression guard: default behavior (no --keep-stash) is unchanged —
     the autostash is auto-restored under --yes."""
     restore_calls, discard_calls, park_calls = _setup_keep_stash_test(monkeypatch, tmp_path)
-    side_effect, _ = _make_update_side_effect()
+    side_effect, _ = _make_update_side_effect(current_branch=DEFAULT_UPDATE_BRANCH)
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
     hermes_main.cmd_update(SimpleNamespace(yes=True, keep_stash=False))
@@ -620,7 +621,7 @@ def test_update_keep_stash_failure_path_still_preserves(monkeypatch, tmp_path, c
     """--keep-stash + failed update: neither restore nor park runs; the
     existing preserved-in-stash message fires (working tree unknown)."""
     restore_calls, discard_calls, park_calls = _setup_keep_stash_test(monkeypatch, tmp_path)
-    side_effect, _ = _make_update_side_effect(ff_only_fails=True, reset_fails=True)
+    side_effect, _ = _make_update_side_effect(current_branch=DEFAULT_UPDATE_BRANCH, ff_only_fails=True, reset_fails=True)
     monkeypatch.setattr(hermes_main.subprocess, "run", side_effect)
 
     with pytest.raises(SystemExit, match="1"):

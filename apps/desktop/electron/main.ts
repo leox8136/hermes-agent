@@ -396,6 +396,7 @@ import {
   windowOpacityOptions
 } from './translucency'
 import { branchTipApiUrl, cacheIsFresh, compareApiUrl, githubRepoSlug, parseCompare } from './update-api-check'
+import { DEFAULT_UPDATE_BRANCH, normalizeUpdateBranch, resolveUpdateBranch, updateBranchArgs } from './update-branch'
 import { waitForUpdateClearance } from './update-gate'
 import { readLiveUpdateMarker, updateHandoffConflict, writeUpdateMarker } from './update-marker'
 import { isOfficialSshRemote, OFFICIAL_REPO_HTTPS_URL } from './update-remote'
@@ -874,10 +875,6 @@ const DESKTOP_PROFILE_CONFIG_PATH = path.join(app.getPath('userData'), 'active-p
 // Mirrors hermes_cli.profiles._PROFILE_ID_RE so we never hand the backend a
 // value its profile resolver would reject and exit on.
 const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
-// Branch we track for self-update. The GUI work has merged to main, so this
-// tracks main. User can also override at runtime via
-// hermesDesktop.updates.setBranch().
-const DEFAULT_UPDATE_BRANCH = 'main'
 // desktop.log lives under HERMES_HOME/logs/ so it sits next to agent.log,
 // errors.log, gateway.log produced by hermes_logging.setup_logging — one log
 // directory per user, regardless of which UI surface produced the line.
@@ -3025,9 +3022,7 @@ function recentHermesLog() {
 function readDesktopUpdateConfig() {
   try {
     const parsed = JSON.parse(fs.readFileSync(DESKTOP_UPDATE_CONFIG_PATH, 'utf8'))
-    const branch = typeof parsed?.branch === 'string' ? parsed.branch.trim() : ''
-
-    return { branch: branch || DEFAULT_UPDATE_BRANCH }
+    return { branch: normalizeUpdateBranch(parsed?.branch) }
   } catch {
     return { branch: DEFAULT_UPDATE_BRANCH }
   }
@@ -3168,33 +3163,22 @@ function emitUpdateProgress(payload) {
   }
 }
 
-// Self-heal the tracked update branch: if origin no longer publishes it (e.g.
-// bb/gui was merged into main and deleted), fall back to main and persist so
-// every later check/apply follows main — no manual flip, even for already-
-// installed clients. Read-only ls-remote probe; only flips on a definitive
-// "ref absent" (exit 2), never on a transient network error, so a flaky
-// connection can't strand a user on the wrong branch.
+// A deleted custom branch returns to the operations channel. Probe origin;
+// preserve the selected branch when the network cannot establish its absence.
 async function resolveHealedBranch(updateRoot, branch) {
-  if (!branch || branch === 'main') {
-    return branch || 'main'
-  }
-
-  const originUrl = await getOriginUrl(updateRoot)
-  const remote = isOfficialSshRemote(originUrl) ? OFFICIAL_REPO_HTTPS_URL : 'origin'
-  const probe = await runGit(['ls-remote', '--exit-code', '--heads', remote, branch], { cwd: updateRoot })
-
-  if (probe.code !== 2) {
-    return branch
-  }
-
-  rememberLog(`[updates] origin/${branch} is gone (merged?); falling back to main`)
-  const config = readDesktopUpdateConfig()
-
-  if (config.branch !== 'main') {
-    writeDesktopUpdateConfig({ ...config, branch: 'main' })
-  }
-
-  return 'main'
+  return resolveUpdateBranch(
+    branch,
+    async target => {
+      const originUrl = await getOriginUrl(updateRoot)
+      const remote = isOfficialSshRemote(originUrl) ? OFFICIAL_REPO_HTTPS_URL : 'origin'
+      const probe = await runGit(['ls-remote', '--exit-code', '--heads', remote, target], { cwd: updateRoot })
+      return probe.code
+    },
+    fallback => {
+      rememberLog(`[updates] origin/${branch} is gone; falling back to ${fallback}`)
+      writeDesktopUpdateConfig({ ...readDesktopUpdateConfig(), branch: fallback })
+    }
+  )
 }
 
 // Passive checks never touch git's network side. Every client used to `git
@@ -4047,29 +4031,15 @@ async function applyUpdates(opts: { stopSafeBlockers?: boolean } = {}) {
       const updateRoot = resolveUpdateRoot()
 
       if (!resolveUpdateScriptHandoff(updateRoot)) {
-        // They DO have a working `hermes` on PATH / in the venv, so the
-        // correct path is the one-liner in their native medium. We show the
-        // EXACT command, branch-pinned to the checkout they're on — bare
-        // `hermes update` defaults to main and would silently switch a
-        // bb/gui (or any non-main) install off-branch. Mirror the GUI
-        // button's contract: append --branch <current> for non-main
-        // checkouts, keep it bare for main so the card stays clean.
-        let command = 'hermes update'
+        // Pin the Desktop selection even when the installed CLI still has an older default.
+        let { branch } = readDesktopUpdateConfig()
 
         try {
-          const head = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: updateRoot })
-          const current = (head.stdout || '').trim()
-
-          if (head.code === 0 && current && current !== 'HEAD') {
-            const branch = await resolveHealedBranch(updateRoot, current)
-
-            if (branch !== 'main') {
-              command = `hermes update --branch ${branch}`
-            }
-          }
+          branch = await resolveHealedBranch(updateRoot, branch)
         } catch {
-          // Best-effort: fall back to bare `hermes update` if branch detection fails.
+          // Keep the configured channel if the probe cannot complete.
         }
+        const command = `hermes update --branch ${branch}`
 
         rememberLog(`[updates] no staged updater; surfacing manual \`${command}\` for CLI install at ${updateRoot}`)
         emitUpdateProgress({ stage: 'manual', message: command, percent: null })
@@ -4104,7 +4074,7 @@ async function applyUpdates(opts: { stopSafeBlockers?: boolean } = {}) {
     const updateRoot = resolveUpdateRoot()
     const { branch: configuredBranch } = readDesktopUpdateConfig()
     const branch = await resolveHealedBranch(updateRoot, configuredBranch || DEFAULT_UPDATE_BRANCH)
-    const updaterArgs = ['--update', '--branch', branch]
+    const updaterArgs = ['--update', ...updateBranchArgs(branch)]
     const targetApp = IS_MAC ? runningAppBundle() : null
 
     if (targetApp) {
@@ -4591,11 +4561,14 @@ function preflightStateDb(hermesHome, rememberLog) {
 async function applyUpdatesPosixHandoff(opts: any) {
   const updateRoot = resolveUpdateRoot()
   const handoff = resolvePosixScriptHandoff(updateRoot)
+  const { branch: configuredBranch } = readDesktopUpdateConfig()
+  const branch = await resolveHealedBranch(updateRoot, configuredBranch)
 
   if (!handoff) {
-    emitUpdateProgress({ stage: 'manual', message: 'hermes update', percent: null })
+    const command = `hermes update --branch ${branch}`
+    emitUpdateProgress({ stage: 'manual', message: command, percent: null })
 
-    return { ok: true, manual: true, command: 'hermes update', hermesRoot: updateRoot }
+    return { ok: true, manual: true, command, hermesRoot: updateRoot }
   }
 
   const handoffConflict = updateHandoffConflict(HERMES_HOME)
@@ -4612,22 +4585,7 @@ async function applyUpdatesPosixHandoff(opts: any) {
   // ── Pre-flight state.db integrity guard (#68474) ──
   preflightStateDb(HERMES_HOME, rememberLog)
 
-  // Branch-pin so a non-main checkout doesn't get switched to main (and
-  // self-heal to main when the pinned branch no longer exists on origin).
-  let branch = 'main'
-
-  try {
-    const head = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: updateRoot })
-    const current = (head.stdout || '').trim()
-
-    if (head.code === 0 && current && current !== 'HEAD') {
-      branch = await resolveHealedBranch(updateRoot, current)
-    }
-  } catch {
-    // best effort
-  }
-
-  const args = [...handoff.args, '--install-root', updateRoot, '--branch', branch, '--desktop-pid', String(process.pid)]
+  const args = [...handoff.args, '--install-root', updateRoot, ...updateBranchArgs(branch), '--desktop-pid', String(process.pid)]
   const updateStartedAt = Math.floor(Date.now() / 1000)
 
   // Relaunch target: the running .app bundle on mac (script swaps the
@@ -17533,7 +17491,7 @@ ipcMain.handle('hermes:updates:apply', async (_event, payload) =>
 ipcMain.handle('hermes:updates:branch:get', async () => readDesktopUpdateConfig())
 
 ipcMain.handle('hermes:updates:branch:set', async (_event, name) => {
-  const branch = typeof name === 'string' && name.trim() ? name.trim() : DEFAULT_UPDATE_BRANCH
+  const branch = normalizeUpdateBranch(name)
   writeDesktopUpdateConfig({ branch })
 
   return { branch }
