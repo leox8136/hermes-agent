@@ -90,48 +90,42 @@ _HARDLINE_BLOCK = [
     # System-wide kill
     "kill -9 -1",
     "kill -1",
-    # Shutdown / reboot / halt
+    # Shutdown / poweroff / halt
     "shutdown -h now",
-    "shutdown -r now",
     "sudo shutdown now",
-    "reboot",
-    "sudo reboot",
-    "halt",
     "poweroff",
+    "sudo poweroff",
+    "halt",
     "init 0",
-    "init 6",
     "telinit 0",
     "systemctl poweroff",
-    "systemctl reboot",
     "systemctl halt",
     # Compound / subshell variants
-    "ls; reboot",
+    "ls; poweroff",
     "echo done && shutdown -h now",
     "false || halt",
-    "$(reboot)",
+    "$(poweroff)",
     "`shutdown now`",
     "sudo -E shutdown now",
-    "env FOO=1 reboot",
+    "env FOO=1 poweroff",
     "exec shutdown",
-    "nohup reboot",
+    "nohup poweroff",
     "setsid poweroff",
     # Bare subshell `(cmd)` and brace-group `{ cmd; }` openers put the trigger
     # at a real command position, so they must hit the floor just like `$(…)`.
     # These slipped through before the quote-aware command-start tokenizer
-    # learned to recognize `(` / `{` (issue: (reboot) walked past --yolo).
-    "(reboot)",
-    "( reboot )",
-    "(shutdown -h now)",
+    # learned to recognize `(` / `{` (issue: (poweroff) walked past --yolo).
     "(poweroff)",
+    "( poweroff )",
+    "(shutdown -h now)",
     "(halt)",
     "(init 0)",
-    "(systemctl reboot)",
-    "(sudo reboot)",
-    "{ reboot; }",
-    "{ shutdown -h now; }",
+    "(systemctl poweroff)",
+    "(sudo poweroff)",
     "{ poweroff; }",
-    "true && (reboot)",
-    "echo hi; { reboot; }",
+    "{ shutdown -h now; }",
+    "true && (poweroff)",
+    "echo hi; { poweroff; }",
 ]
 
 
@@ -174,12 +168,12 @@ _HARDLINE_ALLOW = [
     "cat /dev/urandom | head -c 10",
     # Unrelated commands that happen to contain the trigger word
     "grep 'shutdown' logs.txt",
-    "echo reboot",
+    "echo poweroff",
     "echo '# init 0 in comment'",
-    "cat rebooting.log",
+    "cat poweroff.log",
     "echo 'halt and catch fire'",
     "python3 -c 'print(\"shutdown\")'",
-    "find . -name '*reboot*'",
+    "find . -name '*poweroff*'",
     # Quoted prose mentioning mkfs must not trip the hardline floor (#93392):
     # the word appears in an argument, not at a command position.
     'echo "does this workflow use mkfs anywhere?"',
@@ -246,16 +240,16 @@ def test_quoted_and_brace_paths_are_hardline_blocked(command):
 # class treated every raw newline — even inside quotes — as a command
 # boundary, blocking `hermes send` message bodies, multi-line
 # `git commit -m` messages, and heredoc text that merely MENTION
-# shutdown/reboot commands.
+# shutdown/poweroff commands.
 _QUOTED_NEWLINE_DATA_ALLOW = [
     # hermes send with a multi-line message body (the reported symptom)
-    'hermes send -t telegram -s "spark1" "console output:\nsudo reboot\ndone"',
+    'hermes send -t telegram -s "spark1" "console output:\nsudo poweroff\ndone"',
     'hermes send -t telegram "line1\nshutdown -h now\nline3"',
     # git commit -m with a multi-line message
-    "git commit -m 'ops notes:\nreboot the box after the deploy'",
-    'git commit -m "fix startup\nsystemctl reboot was flaky here"',
+    "git commit -m 'ops notes:\npoweroff the box after the deploy'",
+    'git commit -m "fix startup\nsystemctl poweroff was flaky here"',
     # heredoc bodies quoting dangerous strings as data
-    "python3 - <<'EOF'\nmsg = 'run sudo reboot later'\nprint(msg)\nEOF",
+    "python3 - <<'EOF'\nmsg = 'run sudo poweroff later'\nprint(msg)\nEOF",
     "cat > /tmp/notes.txt <<'EOF'\nremember: shutdown -h now\nEOF",
     # rm hardline floor is anchored to the same class — quoted prose about it
     # across a line break must stay data too
@@ -266,16 +260,16 @@ _QUOTED_NEWLINE_DATA_ALLOW = [
 # boundaries around/inside those same shapes still hit the floor.
 _QUOTED_NEWLINE_THREATS_BLOCK = [
     # unquoted newline is a real command separator
-    "echo hi\nsudo reboot",
-    'echo "a"\nsudo reboot',
+    "echo hi\nsudo poweroff",
+    'echo "a"\nsudo poweroff',
     'git commit -m "safe message"\nshutdown -h now',
     # command substitution inside double quotes really executes
-    'hermes send -t telegram "$(sudo reboot)"',
+    'hermes send -t telegram "$(sudo poweroff)"',
     'echo "`shutdown -h now`"',
     # multi-line quoted data followed by a REAL chained command
-    'hermes send "line1\nline2" && sudo reboot',
+    'hermes send "line1\nline2" && sudo poweroff',
     # a heredoc whose body is data, but the delivery command itself is hardline
-    "sudo reboot <<'EOF'\nignored\nEOF",
+    "sudo poweroff <<'EOF'\nignored\nEOF",
 ]
 
 
@@ -301,7 +295,7 @@ def test_quoted_newline_data_not_blocked_by_full_guard_chain(clean_session):
     """End-to-end: the guard chain must not hardline-block a multi-line
     quoted message (yolo on, so only the unconditional floor can block)."""
     enable_session_yolo("hardline_test")
-    command = 'hermes send -t telegram "status:\nsudo reboot happened at 3am"'
+    command = 'hermes send -t telegram "status:\nsudo poweroff happened at 3am"'
     result = check_all_command_guards(command, "local")
     assert result["approved"], (
         f"guard chain blocked multi-line quoted data: {result.get('message')}"
@@ -324,15 +318,15 @@ _DATA_ARG_NOT_A_COMMAND = [
     # A `(` or `{` INSIDE a quoted argument is prose, not a subshell/brace
     # opener — the trigger word after it is data. Naively adding `(` / `{` to
     # the flat command-position class blocked these (it broke our own
-    # `gh pr create --title "…(reboot)…"` workflow); the quote-aware tokenizer
+    # `gh pr create --title "…(poweroff)…"` workflow); the quote-aware tokenizer
     # must leave them alone.
-    'gh pr create --title "block (reboot) spellings"',
+    'gh pr create --title "block (poweroff) spellings"',
     'git commit -m "(rm -rf /) note"',
-    'echo "(reboot)"',
-    'echo "{ reboot; }"',
+    'echo "(poweroff)"',
+    'echo "{ poweroff; }"',
     "echo '(poweroff)'",
     "echo '{ rm -rf /; }'",
-    'find . -name "*(reboot)*"',
+    'find . -name "*(poweroff)*"',
 ]
 
 
@@ -566,7 +560,7 @@ def test_yolo_env_var_cannot_bypass_hardline(clean_session, monkeypatch):
     monkeypatch.setenv("HERMES_YOLO_MODE", "1")
 
     for cmd in ['rm -rf /', 'rm -rf "/"', 'rm -rf "$HOME"', "rm -rf ${HOME}",
-                "shutdown -h now", "mkfs.ext4 /dev/sda", "reboot"]:
+                "shutdown -h now", "mkfs.ext4 /dev/sda", "poweroff"]:
         r1 = check_dangerous_command(cmd, "local")
         assert r1["approved"] is False, f"yolo leaked hardline on {cmd!r} (check_dangerous_command)"
         assert r1.get("hardline") is True
@@ -610,17 +604,17 @@ def test_root_collapse_pattern_leaves_real_paths_alone(clean_session):
 
 def test_subshell_brace_group_cannot_bypass_hardline(clean_session, monkeypatch):
     """Wrapping a catastrophic command in `(…)` or `{ …; }` must not bypass
-    the floor, even under yolo. `(reboot)` / `{ shutdown -h now; }` walked
+    the floor, even under yolo. `(poweroff)` / `{ shutdown -h now; }` walked
     straight past the guard before the command-start tokenizer recognized the
     subshell and brace-group openers.
     """
     monkeypatch.setenv("HERMES_YOLO_MODE", "1")
 
-    for cmd in ["(reboot)", "( reboot )", "(shutdown -h now)", "(poweroff)",
-                "(systemctl reboot)", "(init 0)", "(sudo reboot)",
-                "{ reboot; }", "{ shutdown -h now; }", "{ poweroff; }",
+    for cmd in ["(poweroff)", "( poweroff )", "(shutdown -h now)", "(poweroff)",
+                "(systemctl poweroff)", "(init 0)", "(sudo poweroff)",
+                "{ poweroff; }", "{ shutdown -h now; }", "{ poweroff; }",
                 "(rm -rf /)", "{ rm -rf /; }", "(rm -rf ~)",
-                "true && (reboot)", "echo hi; { reboot; }"]:
+                "true && (poweroff)", "echo hi; { poweroff; }"]:
         r1 = check_dangerous_command(cmd, "local")
         assert r1["approved"] is False, f"yolo leaked hardline on {cmd!r} (check_dangerous_command)"
         assert r1.get("hardline") is True
@@ -635,15 +629,15 @@ def test_quoted_paren_brace_prose_not_blocked_under_yolo(clean_session, monkeypa
 
     Regression guard: naively adding `(` / `{` to the flat command-position
     class blocked ordinary quoted arguments — including our own
-    `gh pr create --title "…(reboot)…"` workflow. The quote-aware tokenizer
+    `gh pr create --title "…(poweroff)…"` workflow. The quote-aware tokenizer
     must leave quoted text untouched, so these stay runnable.
     """
     monkeypatch.setenv("HERMES_YOLO_MODE", "1")
 
-    for cmd in ['gh pr create --title "block (reboot) spellings"',
+    for cmd in ['gh pr create --title "block (poweroff) spellings"',
                 'git commit -m "(rm -rf /) note"',
-                'echo "(reboot)"', 'echo "{ reboot; }"',
-                "echo '(poweroff)'", 'find . -name "*(reboot)*"']:
+                'echo "(poweroff)"', 'echo "{ poweroff; }"',
+                "echo '(poweroff)'", 'find . -name "*(poweroff)*"']:
         assert detect_hardline_command(cmd)[0] is False, (
             f"quoted prose false-positived on the hardline floor: {cmd!r}"
         )

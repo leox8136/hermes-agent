@@ -140,6 +140,14 @@ The blocklist is the floor below `--yolo`. It trips **before** the approval laye
 
 If you hit the blocklist, the tool call returns an explanatory error to the agent and nothing runs. If a legitimate workflow needs one of these commands (you're the operator of a wipe-and-reinstall pipeline, for example), run it outside the agent.
 
+Operating-system restarts (`reboot`, `shutdown -r`, `shutdown --reboot`, `systemctl reboot`,
+`init 6`, and `telinit 6`) use the normal dangerous-command approval flow on local and SSH
+backends. They can be approved interactively or through the existing automation approval
+policy, including YOLO and `approvals.mode: off`. Shutdown without a reboot option,
+`halt`, and `poweroff` remain hardline-blocked. User-defined deny rules still take precedence
+over restart approval. This does not change the separate guard on restarting Hermes's own
+supervised gateway from inside the gateway.
+
 ### User-Defined Deny Rules (`approvals.deny`)
 
 The hardline blocklist is fixed and code-shipped. `approvals.deny` is its user-editable counterpart: a list of glob patterns that block matching terminal commands unconditionally — **before** `--yolo`, `/yolo`, and `approvals.mode: off` are consulted. Use it to run yolo-with-exceptions: "let the agent do everything, except these specific things, ever."

@@ -59,11 +59,11 @@ class TestVerdicts:
         assert "allow" in out
 
     def test_hardline_command_denies_with_rule_name(self, isolated_approvals, capsys):
-        rc = at.approvals_test_command(_args(["sudo", "re" + "boot"]))
+        rc = at.approvals_test_command(_args(["sudo", "poweroff"]))
         out = capsys.readouterr().out
         assert rc == 3
         assert "hardline-deny" in out
-        assert "system shutdown/reboot" in out
+        assert "system shutdown" in out
 
     def test_dangerous_command_asks_with_exit_2(self, isolated_approvals, capsys):
         rc = at.approvals_test_command(_args(["rm", "-rf", "~/project/build"]))
@@ -100,7 +100,7 @@ class TestVerdicts:
         out = capsys.readouterr().out
         assert rc == 0
         assert "off" in out
-        rc = at.approvals_test_command(_args(["sudo", "re" + "boot"]))
+        rc = at.approvals_test_command(_args(["sudo", "poweroff"]))
         assert rc == 3
 
 
@@ -174,13 +174,13 @@ class TestReadOnly:
 
 class TestOutputAndWiring:
     def test_json_output_is_machine_readable(self, isolated_approvals, capsys):
-        rc = at.approvals_test_command(_args(["sudo", "re" + "boot"], as_json=True))
+        rc = at.approvals_test_command(_args(["sudo", "poweroff"], as_json=True))
         payload = json.loads(capsys.readouterr().out)
         assert rc == 3
         assert payload["verdict"] == "hardline-deny"
         assert payload["exit_code"] == 3
-        assert payload["rule"] == "system shutdown/reboot"
-        assert payload["command"] == "sudo re" + "boot"
+        assert payload["rule"] == "system shutdown"
+        assert payload["command"] == "sudo poweroff"
         assert isinstance(payload["normalized_variants"], list)
 
     def test_empty_command_is_usage_error(self, isolated_approvals, capsys):

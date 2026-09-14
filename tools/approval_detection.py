@@ -66,6 +66,15 @@ _CMDPOS = (
     r'(?:(?:exec|nohup|setsid|time)\s+)*' r'\s*'  # optional wrapper commands
 )
 
+# Only option tokens before the time/message count as a restart request. A halt/poweroff
+# option anywhere keeps the hard floor even when combined with -r.
+_POWEROFF_ARGS = r'(?:[^\n]*\s)?(?:-[a-z]*[hp][a-z]*|--(?:halt|poweroff))(?=\s|$)'
+_SHUTDOWN_REBOOT_ARGS = (
+    r'(?!' + _POWEROFF_ARGS + r')'
+    r'(?:--?[\w-]+\s+)*(?:-[a-z]*r[a-z]*|--reboot)(?=\s|$)'
+)
+_RESTART_CMDPOS = _CMDPOS + r'(?:(?:/usr)?/s?bin/)?'
+
 
 # Destructive-path matcher for the rm hardline rules: accept the path fully wrapped in a matching
 # quote pair (`rm -rf "/"`, `rm -rf "$HOME"`) OR bare with a terminator (whitespace, end, or
@@ -114,10 +123,12 @@ HARDLINE_PATTERNS = [
     # Kill every process on the system — anchor the command-name token so `echo "kill -1 sends SIGHUP to
     # everything"` doesn't trip (#93392).
     (_CMDPOS + r'kill\s+(-[^\s]+\s+)*-1\b', "kill all processes"),
-    (_CMDPOS + r'(shutdown|reboot|halt|poweroff)\b', "system shutdown/reboot"),
-    (_CMDPOS + r'init\s+[06]\b', "init 0/6 (shutdown/reboot)"),
-    (_CMDPOS + r'systemctl\s+(poweroff|reboot|halt|kexec)\b', "systemctl poweroff/reboot"),
-    (_CMDPOS + r'telinit\s+[06]\b', "telinit 0/6 (shutdown/reboot)"),
+    (_RESTART_CMDPOS + r'reboot\s+' + _POWEROFF_ARGS, "system shutdown"),
+    (_CMDPOS + r'(halt|poweroff)\b', "system shutdown"),
+    (_CMDPOS + r'shutdown\b(?!\s+' + _SHUTDOWN_REBOOT_ARGS + r')', "system shutdown"),
+    (_CMDPOS + r'init\s+0\b', "init 0 (shutdown)"),
+    (_CMDPOS + r'systemctl\s+(poweroff|halt|kexec)\b', "systemctl poweroff/halt/kexec"),
+    (_CMDPOS + r'telinit\s+0\b', "telinit 0 (shutdown)"),
 ]
 
 # Pre-compiled at module load so the hot-path matcher never pays the cold re.compile fan-out
@@ -198,6 +209,11 @@ def detect_hardline_command(command: str) -> tuple:
 
 # ---- Dangerous command patterns -----------------------------------------------------------
 DANGEROUS_PATTERNS = [
+    # Restarts are legitimate operator work and use the existing approval policy.
+    (_RESTART_CMDPOS + r'reboot\b', "system reboot"),
+    (_RESTART_CMDPOS + r'shutdown\s+' + _SHUTDOWN_REBOOT_ARGS, "system reboot"),
+    (_RESTART_CMDPOS + r'(?:init|telinit)\s+6\b', "system reboot"),
+    (_RESTART_CMDPOS + r'systemctl\s+(?:-[^\s]+\s+)*reboot\b', "system reboot"),
     (r'\brm\s+(-[^\s]*\s+)*/', "delete in root path"),
     (r'\brm\s+-[^\s]*r', "recursive delete"),
     (r'\brm\s+--recursive\b', "recursive delete (long flag)"),
