@@ -1241,5 +1241,7 @@ def _resolve_node_runtime_npm() -> str | None:
 
 
 def _resolve_update_branch(args) -> str:
-    """Normalize ``args.branch`` to a non-empty name (default ``main``; blank/whitespace = default)."""
-    return (getattr(args, "branch", None) or "main").strip() or "main"
+    """Use the operations release channel unless the caller explicitly selects a branch."""
+    from hermes_cli.update_target import DEFAULT_UPDATE_BRANCH
+
+    return (getattr(args, "branch", None) or DEFAULT_UPDATE_BRANCH).strip() or DEFAULT_UPDATE_BRANCH

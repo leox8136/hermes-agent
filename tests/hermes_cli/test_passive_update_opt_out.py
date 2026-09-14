@@ -14,6 +14,7 @@ def test_passive_check_obeys_config_before_using_cached_notice(monkeypatch):
     repo_dir = banner._resolve_repo_dir()
     head = banner._git_stdout(["rev-parse", "HEAD"], cwd=repo_dir) if repo_dir else None
     (home / ".update_check").write_text(json.dumps({
+        "channel": [banner.DEFAULT_UPDATE_REPO, banner.DEFAULT_UPDATE_BRANCH],
         "ts": time.time(), "behind": 17, "rev": None, "ver": banner.VERSION, "head": head,
     }), encoding="utf-8")
     monkeypatch.delenv("HERMES_REVISION", raising=False)
@@ -39,7 +40,7 @@ def test_explicit_check_fetches_local_origin_despite_passive_opt_out(tmp_path, m
     git("-C", remote, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "next")
     monkeypatch.setattr(main, "PROJECT_ROOT", local)
     (get_hermes_home() / "config.yaml").write_text("updates:\n  check: false\n", encoding="utf-8")
-    _cmd_update_check()
+    _cmd_update_check("main")
     output = capsys.readouterr().out
     assert "Fetching from origin" in output
     assert "1 commit" in output

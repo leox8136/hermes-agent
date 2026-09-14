@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import hermes_cli.banner as banner
+from hermes_cli.update_target import DEFAULT_UPDATE_BRANCH, DEFAULT_UPDATE_REPO
 
 SHA_A = "a" * 40
 SHA_B = "b" * 40
@@ -33,7 +34,7 @@ def git_repo(tmp_path, monkeypatch):
     return repo_dir
 
 
-def _stub_git(monkeypatch, *, head=SHA_A, origin="https://github.com/NousResearch/hermes-agent.git"):
+def _stub_git(monkeypatch, *, head=SHA_A, origin=f"https://github.com/{DEFAULT_UPDATE_REPO}.git"):
     calls = []
 
     def fake_run(args, **kwargs):
@@ -59,7 +60,7 @@ def test_passive_check_uses_the_api_and_never_fetches(git_repo, monkeypatch):
     monkeypatch.setattr(banner, "_github_compare_behind", lambda cur, tgt: 61)
 
     assert banner.check_for_updates() == 61
-    tip.assert_called_once_with("nousresearch/hermes-agent", "main")
+    tip.assert_called_once_with(DEFAULT_UPDATE_REPO, DEFAULT_UPDATE_BRANCH)
     assert not any(c[1] in {"fetch", "ls-remote"} for c in calls)
 
     cached = json.loads((git_repo.parent / ".update_check").read_text())
@@ -78,7 +79,7 @@ def test_cache_is_daily_but_invalidated_when_head_moves(git_repo, monkeypatch):
 
     def write_cache(*, ts, head, behind):
         cache_file.write_text(json.dumps(
-            {"ts": ts, "behind": behind, "rev": None, "ver": __version__, "head": head}))
+            {"ts": ts, "behind": behind, "rev": None, "ver": __version__, "head": head, "channel": [DEFAULT_UPDATE_REPO, DEFAULT_UPDATE_BRANCH]}))
 
     write_cache(ts=time.time() - banner._UPDATE_CHECK_CACHE_SECONDS + 60, head=SHA_A, behind=3)
     assert banner.check_for_updates() == 3
@@ -146,14 +147,14 @@ def test_prefetch_banner_data_is_noop_under_pytest(monkeypatch):
     assert banner._banner_data_prefetch_started is True
 
 
-def test_upstream_main_sha_ls_remote_fallback_disables_git_prompts(monkeypatch):
+def test_default_update_sha_ls_remote_fallback_disables_git_prompts(monkeypatch):
     """When the API is unreachable the HTTPS ls-remote fallback must never inherit the terminal."""
     monkeypatch.setattr(banner, "_github_branch_tip", lambda slug, branch: None)
     completed = MagicMock(returncode=1, stdout="", stderr="auth required")
     run = MagicMock(return_value=completed)
     monkeypatch.setattr(banner.subprocess, "run", run)
 
-    assert banner._upstream_main_sha() is None
+    assert banner._default_update_sha() is None
     kwargs = run.call_args.kwargs
     assert kwargs["stdin"] is banner.subprocess.DEVNULL
     assert kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"

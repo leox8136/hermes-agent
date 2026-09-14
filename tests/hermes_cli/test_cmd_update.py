@@ -40,7 +40,8 @@ def _make_run_side_effect(branch="main", verify_ok=True, commit_count="0"):
 
 @pytest.fixture
 def mock_args():
-    return SimpleNamespace()
+    # These pipeline fixtures model an explicit main-channel checkout.
+    return SimpleNamespace(branch="main")
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +334,7 @@ class TestCmdUpdateBranchFallback:
         ) as add_remote, patch.object(
             update_cmd, "_mark_skip_upstream_prompt"
         ) as mark_skip, patch("builtins.input") as stdin_input:
-            cmd_update(SimpleNamespace(yes=True))
+            cmd_update(SimpleNamespace(yes=True, branch="main"))
 
         stdin_input.assert_not_called()
         add_remote.assert_not_called()
@@ -972,14 +973,14 @@ class TestCmdUpdateCheckBranchFlag:
 
     @patch("hermes_cli.config.detect_install_method", return_value="git")
     @patch("subprocess.run")
-    def test_check_default_main_still_prefers_upstream(
+    def test_check_explicit_main_still_prefers_upstream(
         self, mock_run, _mock_method, capsys
     ):
-        """No --branch (or --branch=None) preserves the upstream-then-origin probe."""
+        """An explicit --branch main preserves the upstream-then-origin probe."""
         mock_run.side_effect = self._check_side_effect(
             target_branch="main", verify_ok=True, commit_count="0"
         )
-        args = SimpleNamespace(check=True, branch=None)
+        args = SimpleNamespace(check=True, branch="main")
 
         cmd_update(args)
 

@@ -368,18 +368,20 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
     pre_update_version = _read_project_version()  # snapshot before files are replaced, for the completion line
     # The static archive would silently ignore --branch — the exact silent-divergence bug it exists to
     # prevent. Refuse rather than lie.
+    from hermes_cli.update_target import DEFAULT_UPDATE_BRANCH, DEFAULT_UPDATE_REPO
+
     branch = _m()._resolve_update_branch(args)
-    if branch != "main":
+    if branch not in {DEFAULT_UPDATE_BRANCH, "main"}:
         print(f"✗ --branch={branch} is not supported on the Windows ZIP-fallback update path.")
         print(
             "  This path runs when git file I/O is broken on the system. "
             "Either resolve the git-side breakage (typically an antivirus "
             "or NTFS filter holding files open) and rerun `hermes update "
-            f"--branch {branch}`, or update against main with `hermes update`."
+            f"--branch {branch}`, or update against {DEFAULT_UPDATE_BRANCH} with `hermes update`."
         )
         _m().sys.exit(1)
     _abort_zip_update_if_dirty_tree()
-    _download_and_swap_zip(branch, f"https://github.com/NousResearch/hermes-agent/archive/refs/heads/{branch}.zip")
+    _download_and_swap_zip(branch, f"https://github.com/{DEFAULT_UPDATE_REPO}/archive/refs/heads/{branch}.zip")
     _sweep_bytecode_after_update(branch)
     # Self-lock deferral: the code swap is committed; defer only the dependency sync when this process
     # holds a native extension the sync must rewrite.

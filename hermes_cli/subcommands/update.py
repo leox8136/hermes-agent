@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+from hermes_cli.update_target import DEFAULT_UPDATE_BRANCH
+
 
 def build_update_parser(subparsers, *, cmd_update: Callable) -> None:
     """Attach the ``update`` subcommand to ``subparsers``."""
@@ -44,7 +46,7 @@ def build_update_parser(subparsers, *, cmd_update: Callable) -> None:
             "never silently ride along across updates.")
     update_parser.add_argument(
         "--branch", default=None, metavar="NAME",
-        help="Update against this branch instead of the default (main). "
+        help=f"Update against this branch on origin instead of the default ({DEFAULT_UPDATE_BRANCH}). "
             "If the local checkout is on a different branch, hermes will "
             "switch to the requested branch first (auto-stashing any "
             "uncommitted changes).")
