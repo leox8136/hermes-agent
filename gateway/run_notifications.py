@@ -482,7 +482,7 @@ class GatewayNotificationsMixin:
         # Poll until _send_update_notification delivers (it returns False while the platform reconnects).
         loop = asyncio.get_running_loop()
         while paths.any_pending() and loop.time() < deadline:
-            if paths.exit_code.exists() and await self._send_update_notification():
+            if await self._send_update_notification():
                 return
             await asyncio.sleep(poll_interval)
         if paths.any_pending() and not paths.exit_code.exists():
@@ -578,18 +578,16 @@ class GatewayNotificationsMixin:
                     buffer += chunk
 
         while loop.time() < deadline:
-            if paths.exit_code.exists():
+            from hermes_cli.update_handoff import resume_gateway_update_handoff
+            settled = await asyncio.to_thread(resume_gateway_update_handoff, paths.pending.parent)
+            if settled and paths.exit_code.exists():
                 _read_new_output()
                 await _flush_buffer()
-                with _log_suppressed(logging.WARNING, "Update final notification failed: %s"):
-                    exit_code = self._update_exit_code(paths)
-                    await target.send(
-                        "✅ Hermes update finished." if exit_code == 0
-                        else "❌ Hermes update failed (exit code {}).".format(exit_code)
-                    )
-                    logger.info("Update finished (exit=%s), notified %s", exit_code, session_key)
-                self._clear_update_markers(paths, session_key)
-                return
+                if await self._send_update_notification():
+                    self._clear_update_markers(paths, session_key)
+                    return
+                await asyncio.sleep(poll_interval)
+                continue
             _read_new_output()
             if buffer.strip() and (loop.time() - last_stream_time) >= stream_interval:
                 await _flush_buffer()
@@ -622,6 +620,9 @@ class GatewayNotificationsMixin:
         """
         from gateway.run import _non_conversational_metadata
         paths = self._update_paths()
+        from hermes_cli.update_handoff import resume_gateway_update_handoff
+        if not await asyncio.to_thread(resume_gateway_update_handoff, paths.pending.parent):
+            return False
         if not paths.any_pending():
             return False
         cleanup = True
@@ -671,10 +672,14 @@ class GatewayNotificationsMixin:
                         "✅ Hermes update finished successfully." if exit_code == 0 else
                         "❌ Hermes update failed. Check the gateway logs or run `hermes update` manually for details."
                     )
-                await adapter.send(chat_id, msg, metadata=_non_conversational_metadata(metadata, platform=platform))
+                result = await adapter.send(chat_id, msg, metadata=_non_conversational_metadata(metadata, platform=platform))
+                if _send_failed(result):
+                    return _defer("Update notification delivery failed: %s", _send_error(result))
                 logger.info("Sent post-update notification to %s:%s (exit=%s)", platform_str, chat_id, exit_code)
         except Exception as e:
             logger.warning("Post-update notification failed: %s", e)
+            cleanup = False
+            return False
         finally:
             if cleanup:
                 for p in (active_pending_path, paths.claimed, paths.output, paths.exit_code):

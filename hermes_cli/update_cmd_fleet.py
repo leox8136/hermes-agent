@@ -46,7 +46,7 @@ def _fleet_restart_pending_marker_path() -> Path:
 
 
 def _write_fleet_restart_pending_marker(*, expected_sha: str = "") -> None:
-    """Drop the pull→restart obligation breadcrumb. Never raises."""
+    """Drop the pull→restart obligation; refuse to overwrite a concurrent settlement."""
     from hermes_cli.update_cmd import _m
     path = _fleet_restart_pending_marker_path()
     if _m()._pytest_owns_live_checkout(path.parent):
@@ -56,7 +56,11 @@ def _write_fleet_restart_pending_marker(*, expected_sha: str = "") -> None:
         lines = [f"started={_time.time()}", f"pid={os.getpid()}"]
         if expected_sha:
             lines.append(f"expected_sha={expected_sha}")
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        from hermes_cli.update_handoff import _handoff_lock
+        with _handoff_lock(path.parent) as acquired:
+            if not acquired:
+                raise RuntimeError("Previous update verification is being settled; retry after it completes")
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     except OSError as exc:
         logger.debug("Could not write fleet-restart-pending marker: %s", exc)
 
@@ -1404,6 +1408,13 @@ def _verify_fleet_after_update(restart, *, _pre_update_plan, _windows_gateway_re
                 if _ur._current is not None:
                     _ur._current.data["runtime_outcomes"] = _runtime_outcomes
 
+    from hermes_cli.update_handoff import gateway_handoff_fleet_errors
+    handoff_errors = gateway_handoff_fleet_errors(_fleet_snapshot)
+    if handoff_errors:
+        restart.incomplete = True
+        print("\n⚠ Update handoff verification incomplete: " + "; ".join(handoff_errors))
+
+    _receipt_path = None
     with _best_effort('Update receipt finalize failed: %s'):
         from hermes_cli.update_receipt import finalize_update_receipt
         _receipt_path = finalize_update_receipt(
@@ -1412,6 +1423,9 @@ def _verify_fleet_after_update(restart, *, _pre_update_plan, _windows_gateway_re
         )
         if _receipt_path is not None:
             logger.info("Update receipt written: %s", _receipt_path)
+
+    from hermes_cli.update_handoff import checkpoint_verified_handoff
+    checkpoint_verified_handoff(_receipt_path, fleet_verified=not restart.incomplete)
 
     if restart.incomplete:
         # Code updated but a gateway may still run stale modules: fail so automation

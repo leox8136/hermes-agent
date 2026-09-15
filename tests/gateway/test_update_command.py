@@ -348,8 +348,8 @@ class TestSendUpdateNotification:
 
 
     @pytest.mark.asyncio
-    async def test_cleans_up_on_error(self, tmp_path):
-        """Files are cleaned up even if notification fails."""
+    async def test_preserves_notification_until_delivery_succeeds(self, tmp_path):
+        """Both raised and returned transport failures retain the final result for retry."""
         runner = _make_runner()
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
@@ -369,9 +369,17 @@ class TestSendUpdateNotification:
         runner.adapters = {Platform.TELEGRAM: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
-            await runner._send_update_notification()
+            assert not await runner._send_update_notification()
+            assert (hermes_home / ".update_pending.claimed.json").exists()
+            assert output_path.exists() and exit_code_path.exists()
+            mock_adapter.send.side_effect = None
+            mock_adapter.send.return_value = MagicMock(success=False, error="offline")
+            assert not await runner._send_update_notification()
+            assert pending_path.exists()
+            mock_adapter.send.return_value = MagicMock(success=True)
+            assert await runner._send_update_notification()
 
-        # Files should still be cleaned up (finally block)
+        assert mock_adapter.send.await_count == 3
         assert not pending_path.exists()
         assert not output_path.exists()
         assert not exit_code_path.exists()

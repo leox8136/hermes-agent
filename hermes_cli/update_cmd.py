@@ -1265,17 +1265,21 @@ def _apply_pulled_update(
         node_failures=node_failures, desktop_build_ok=desktop_build_ok,
         pre_update_version=opts.pre_update_version)
 
-    # Exit code *before* the restart: under --gateway this process lives in the gateway's
-    # systemd cgroup and the systemctl-restart fallback SIGKILLs it (KillMode=mixed), so
-    # the marker would never land and the new gateway's watcher would time out spuriously.
+    # setsid does not escape a systemd cgroup. Persist the verification obligation
+    # before restarting; the successor settles it if systemd kills this updater.
     if gateway_mode:
-        _write_gateway_update_exit_code(update_complete)
+        from hermes_cli.update_handoff import prepare_gateway_update_handoff
+        prepare_gateway_update_handoff(_pre_update_plan, update_complete=update_complete)
 
     _restart = _restart_gateway_fleet_after_update(_pre_update_plan, gateway_mode)
     _resume_windows_gateways_and_merge_outcome(_restart, _windows_gateway_resume, gateway_mode)
     _verify_fleet_after_update(
         _restart, _pre_update_plan=_pre_update_plan, _windows_gateway_resume=_windows_gateway_resume,
         node_failures=node_failures, update_complete=update_complete)
+    if gateway_mode:
+        from hermes_cli.update_handoff import retire_gateway_update_handoff
+        _write_gateway_update_exit_code(update_complete)
+        retire_gateway_update_handoff()
 
 
 def _cmd_update_impl(args, gateway_mode: bool):

@@ -119,7 +119,8 @@ def _restart_notify_payload(event: MessageEvent) -> dict:
 
 
 def _spawn_detached_update(hermes_cmd, output_path, exit_code_path) -> None:
-    """Spawn ``hermes update --gateway`` detached so it survives the gateway restart it may trigger.
+    """Spawn ``hermes update --gateway`` in a separate session.
+    systemd cgroup cleanup can still kill it; the updater checkpoints verification for the successor.
     setsid is portable (works where ``systemd-run --user`` lacks a D-Bus session); ``--gateway``
     enables file-based IPC so interactive prompts are forwarded; PYTHONUNBUFFERED lets the gateway
     stream output live.  Windows has no setsid: an inline helper runs the updater as a module under
@@ -141,7 +142,7 @@ def _spawn_detached_update(hermes_cmd, output_path, exit_code_path) -> None:
         # Avoid `status=$?`: `status` is read-only in zsh and this template is reused in
         # macOS/zsh operator wrappers, so keep it zsh-safe even though bash runs it here.
         f"rc=$?; printf '%s' \"$rc\" > {shlex.quote(str(exit_code_path))}")
-    # Preferred: setsid creates a new session, fully detached; fallback start_new_session=True
+    # Preferred: setsid creates a new session; fallback start_new_session=True
     # calls os.setsid() in the child.
     setsid_bin = shutil.which("setsid")
     argv = [setsid_bin, "bash", "-c", update_cmd] if setsid_bin else ["bash", "-c", update_cmd]
@@ -1232,6 +1233,10 @@ class GatewaySlashCommandsMixin(
         if not hermes_cmd:
             return t("gateway.update.hermes_cmd_not_found")
         pending_path = _hermes_home / ".update_pending.json"
+        from hermes_cli.update_handoff import HANDOFF_NAME
+        if (_hermes_home / HANDOFF_NAME).exists():
+            self._schedule_update_notification_watch()
+            return "Previous update is awaiting fleet verification. Check the update receipt before starting another update."
         output_path = _hermes_home / ".update_output.txt"
         exit_code_path = _hermes_home / ".update_exit_code"
         pending = {
