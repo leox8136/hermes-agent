@@ -43,7 +43,7 @@
 
 param(
     [string]$InstallRoot,
-    [string]$Branch = "main",
+    [string]$Branch = "current-ops",
     [int]$DesktopPid = 0,
     [string]$RelaunchExe = "",
     [switch]$NoUi,

@@ -312,7 +312,7 @@ def detect_install_method(project_root: Optional[Path] = None) -> str:
 
     The supported installs self-identify via the code-scoped stamp: - the curl installer
     (scripts/install.sh, the README/website install command) git-clones the repo and stamps ``git`` next to
-    the code; - the published ``nousresearch/hermes-agent`` image bakes a ``docker`` stamp into
+    the code; - the locally built ``hermes-agent`` image bakes a ``docker`` stamp into
     ``/opt/hermes`` at build time. An unsupported manual install dropped into a container (no stamp) falls
     through to the ``.git`` checks and behaves like any off-path install. See issue #34397.
     """
@@ -365,7 +365,7 @@ def is_nix_install_method(method: str) -> bool:
 
 
 _UPDATE_COMMAND_BY_METHOD = {
-    "docker": "docker pull nousresearch/hermes-agent:latest",
+    "docker": "docker compose build --pull && docker compose up -d",
     "apt": "pkg upgrade hermes-agent",  # "apt" == Termux APT by contract; uses Termux's `pkg`.
 }
 
@@ -391,28 +391,24 @@ def recommended_update_command() -> str:
 _DOCKER_UPDATE_MESSAGE = """\
 ✗ ``hermes update`` doesn't apply inside the Docker container.
 
-Hermes Agent runs as a published image (nousresearch/hermes-agent), not a
-git checkout — the container has no working tree to pull into.  Update by
-pulling a fresh image and restarting your container instead:
+This operations fork uses an image built from your checkout's Dockerfile.
+On the HOST, update the leox8136/hermes-agent checkout on current-ops,
+then rebuild and restart its Compose services:
 
-  docker pull nousresearch/hermes-agent:latest
-  # then restart whatever started the container, e.g.:
-  docker compose up -d --force-recreate hermes-agent
-  # or, for ad-hoc runs, exit the current container and `docker run` again
+  git pull --ff-only origin current-ops
+  docker compose build --pull
+  docker compose up -d --force-recreate
+
+On Windows, add -f docker-compose.windows.yml to each Compose command.
+For ad-hoc containers, rebuild the same image tag and recreate the container
+with its existing volumes and settings.
 
 Verify the new version after restart:
-  docker run --rm nousresearch/hermes-agent:latest --version
+  docker run --rm hermes-agent --version
 
-Notes:
-  • If you pinned a specific tag (e.g. ``:v0.14.0``) the ``:latest`` tag
-    won't move your container — pull the newer tag you actually want, or
-    switch to ``:latest`` / ``:main`` for rolling updates.  See available
-    tags at https://hub.docker.com/r/nousresearch/hermes-agent/tags
-  • Your config and session history live under ``$HERMES_HOME`` (``/opt/data``
-    in the container, typically bind-mounted from the host) and persist
-    across image upgrades — re-pulling doesn't lose any state.
-  • Running a fork?  Build your own image with this repo's ``Dockerfile``
-    and replace the ``docker pull`` step with your build/push pipeline."""
+Config and session history remain in $HERMES_HOME (/opt/data in the
+container), bind-mounted from the host, and persist across image rebuilds.
+Do not replace this fork with an official :latest image when updating."""
 
 
 def format_docker_update_message() -> str:

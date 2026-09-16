@@ -141,7 +141,7 @@ def _run_chrome_fallback_command(task_id: str, command: str, args: List[str], ti
     if not _install._chromium_installed():
         if _install._running_in_docker():
             hint = ("Chrome fallback requires Chromium, but it is missing. You're running in Docker — "
-                    "pull the latest image: docker pull ghcr.io/nousresearch/hermes-agent:latest")
+                    "rebuild this fork on the host: docker compose build --pull && docker compose up -d")
         else:
             hint = ("Chrome fallback requires Chromium, but it is missing. Install it with: "
                     "npx agent-browser install --with-deps (or: npx playwright install --with-deps chromium)")

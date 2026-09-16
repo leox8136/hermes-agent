@@ -52,7 +52,7 @@ Hermes 的差异化特性：
 
 ```bash
 # 安装
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/leox8136/hermes-agent/current-ops/scripts/install.sh | bash
 
 # 交互式聊天（默认）
 hermes

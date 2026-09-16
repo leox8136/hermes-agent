@@ -45,7 +45,7 @@ ensure_sandbox_install() {
   rm -rf "$SANDBOX"
   mkdir -p "$SANDBOX"
   # The literal user path: install.sh against a clone of THIS checkout, so
-  # the repro reproduces what you're about to ship, not origin/main.
+  # the repro reproduces what you're about to ship, not origin/current-ops.
   git clone --quiet "$REPO_ROOT" "$SANDBOX_ROOT"
   HERMES_HOME="$SANDBOX" bash "$SANDBOX_ROOT/scripts/install.sh" --non-interactive --skip-setup --hermes-home "$SANDBOX"
 }
@@ -68,13 +68,13 @@ case "$MODE" in
     N="${2:-25}"
     ensure_sandbox_install
     say "rewinding sandbox checkout $N commits"
-    git -C "$SANDBOX_ROOT" fetch --quiet origin main || true
-    git -C "$SANDBOX_ROOT" checkout --quiet main
+    git -C "$SANDBOX_ROOT" fetch --quiet origin current-ops || true
+    git -C "$SANDBOX_ROOT" checkout --quiet current-ops
     git -C "$SANDBOX_ROOT" reset --hard --quiet "HEAD~$N"
     say "sandbox now at: $(git -C "$SANDBOX_ROOT" log --oneline -1)"
     say "driving the orchestrator (watch the shim; log: $SANDBOX/logs/desktop-update-handoff.log)"
     HERMES_HOME="$SANDBOX" bash "$SCRIPT_DIR/posix.sh" \
-      --install-root "$SANDBOX_ROOT" --branch main --desktop-pid 0 || true
+      --install-root "$SANDBOX_ROOT" --branch current-ops --desktop-pid 0 || true
     say "result file:"
     cat "$SANDBOX/.hermes-update-result.json" 2>/dev/null || echo "(none written)"
     echo
@@ -85,7 +85,7 @@ case "$MODE" in
     say "breaking the sandbox venv, then driving the orchestrator"
     mv "$SANDBOX_ROOT/venv" "$SANDBOX_ROOT/venv.hidden"
     HERMES_HOME="$SANDBOX" bash "$SCRIPT_DIR/posix.sh" \
-      --install-root "$SANDBOX_ROOT" --branch main --desktop-pid 0 || true
+      --install-root "$SANDBOX_ROOT" --branch current-ops --desktop-pid 0 || true
     mv "$SANDBOX_ROOT/venv.hidden" "$SANDBOX_ROOT/venv"
     say "result file (expect ok:false, exit 3):"
     cat "$SANDBOX/.hermes-update-result.json" 2>/dev/null || echo "(none written)"

@@ -38,13 +38,14 @@ import fsp from 'node:fs/promises'
 import https from 'node:https'
 import path from 'node:path'
 
+import { DEFAULT_UPDATE_BRANCH, DEFAULT_UPDATE_REPO } from './update-branch'
 import { hiddenWindowsChildOptions } from './windows-child-options'
 
 const IS_WINDOWS = process.platform === 'win32'
 
 const STAMP_COMMIT_RE = /^[0-9a-f]{7,40}$/i
 const FALLBACK_COMMIT_RE = /^0{7,40}$/
-const FALLBACK_BRANCH = 'main'
+const FALLBACK_BRANCH = DEFAULT_UPDATE_BRANCH
 
 function isPinnedCommit(commit) {
   return typeof commit === 'string' && STAMP_COMMIT_RE.test(commit) && !FALLBACK_COMMIT_RE.test(commit)
@@ -224,7 +225,11 @@ function hasExistingGitCheckout(activeRoot) {
 }
 
 function cachedScriptPath(hermesHome, commit) {
-  return path.join(bootstrapCacheDir(hermesHome), `install-${commit}.${process.platform === 'win32' ? 'ps1' : 'sh'}`)
+  return path.join(bootstrapCacheDir(hermesHome), `install-leox8136-${commit}.${process.platform === 'win32' ? 'ps1' : 'sh'}`)
+}
+
+export function installScriptUrl(ref: string, scriptName: string): string {
+  return `https://raw.githubusercontent.com/${DEFAULT_UPDATE_REPO}/${ref}/scripts/${scriptName}`
 }
 
 function downloadInstallScript(ref, destPath) {
@@ -233,7 +238,7 @@ function downloadInstallScript(ref, destPath) {
   // ref so local builds can still bootstrap without pretending the all-zero
   // placeholder is a real GitHub commit.
   const scriptName = installScriptName()
-  const url = `https://raw.githubusercontent.com/NousResearch/hermes-agent/${ref}/scripts/${scriptName}`
+  const url = installScriptUrl(ref, scriptName)
 
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.dirname(destPath), { recursive: true })

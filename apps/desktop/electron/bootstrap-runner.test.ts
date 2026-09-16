@@ -12,14 +12,27 @@ import {
   hasExistingGitCheckout,
   installedAgentInstallScript,
   installRefForStamp,
+  installScriptUrl,
   isPinnedCommit,
   resolveInstallScript,
   resolveMarkerPinnedCommit,
   runBootstrap
 } from './bootstrap-runner'
+import { DEFAULT_UPDATE_BRANCH, DEFAULT_UPDATE_REPO } from './update-branch'
 
 const SCRIPT_NAME = process.platform === 'win32' ? 'install.ps1' : 'install.sh'
 const ZERO_COMMIT = '0000000000000000000000000000000000000000'
+
+test('bootstrap download uses the fork for the default channel and explicit commit pins', () => {
+  const fallback = installRefForStamp({ commit: ZERO_COMMIT })
+  assert.equal(fallback.ref, DEFAULT_UPDATE_BRANCH)
+  for (const ref of [fallback.ref, 'a'.repeat(40)]) {
+    for (const script of ['install.sh', 'install.ps1']) {
+      assert.equal(new URL(installScriptUrl(ref, script)).pathname,
+        `/${DEFAULT_UPDATE_REPO}/${ref}/scripts/${script}`)
+    }
+  }
+})
 
 function mkTmpHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-bootstrap-test-'))

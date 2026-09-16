@@ -327,7 +327,7 @@ async fn run_update(app: AppHandle) -> Result<()> {
 
     let update_branch = update_branch_from_args(std::env::args().skip(1))
         .or_else(|| option_env_string("BUILD_PIN_BRANCH"))
-        .unwrap_or_else(|| "main".to_string());
+        .unwrap_or_else(|| "current-ops".to_string());
     let target_app = if cfg!(target_os = "macos") {
         target_app_from_args(std::env::args().skip(1))
     } else {
@@ -382,7 +382,7 @@ async fn run_update(app: AppHandle) -> Result<()> {
     // Pass --branch so `hermes update` targets the branch this installer was
     // built/pinned against (BUILD_PIN_BRANCH), NOT its built-in default of
     // `main`. The install was a detached-HEAD checkout of a specific commit;
-    // without --branch, `hermes update` switches the checkout to `main` (a
+    // without --branch, `hermes update` switches the checkout to `current-ops` (a
     // divergent branch that may not even have the desktop CLI command), then
     // reports "already up to date" against the wrong branch. The desktop
     // detected the update against this same branch, so we must update against

@@ -11,9 +11,17 @@ There are two distinct ways Docker intersects with Hermes Agent:
 1. **Running Hermes IN Docker** — the agent itself runs inside a container (this page's primary focus)
 2. **Docker as a terminal backend** — the agent runs on your host but executes every command inside a single, persistent Docker sandbox container that survives across tool calls, `/new`, and subagents for the life of the Hermes process (see [Configuration → Docker Backend](./configuration.md#docker-backend))
 
-This page covers option 1. The container stores all user data (config, API keys, sessions, skills, memories) in a single directory mounted from the host at `/opt/data`. The image itself is stateless and can be upgraded by pulling a new version without losing any configuration.
+This page covers option 1. The container stores all user data (config, API keys, sessions, skills, memories) in a single directory mounted from the host at `/opt/data`. The image itself is stateless and can be upgraded by rebuilding from current-ops without losing any configuration.
 
 ## Quick start
+
+This fork uses a locally built image. In your `leox8136/hermes-agent` checkout on `current-ops`, first run:
+
+```sh
+docker build --pull -t hermes-agent .
+```
+
+The examples below use that local image. Run Compose build commands from this checkout.
 
 If this is your first time running Hermes Agent, create a data directory on the host and start the container interactively to run the setup wizard:
 
@@ -34,7 +42,7 @@ result before hitting Enter.
 mkdir -p ~/.hermes
 docker run -it --rm \
   -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent setup
+  hermes-agent setup
 ```
 
 This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.hermes/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
@@ -53,7 +61,7 @@ docker run -d \
   --restart unless-stopped \
   -v ~/.hermes:/opt/data \
   -p 8642:8642 \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 Port 8642 exposes the gateway's [OpenAI-compatible API server](./features/api-server.md) and health endpoint. It's optional if you only use chat platforms (Telegram, Discord, etc.), but required if you want the dashboard or external tools to reach the gateway.
@@ -91,7 +99,7 @@ docker run -d \
   -e API_SERVER_HOST=0.0.0.0 \
   -e API_SERVER_KEY="$(openssl rand -hex 32)" \
   -e API_SERVER_CORS_ORIGINS='*' \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 Opening any port on an internet facing machine is a security risk. You should not do it unless you understand the risks.
@@ -108,7 +116,7 @@ docker run -d \
   -p 8642:8642 \
   -p 9119:9119 \
   -e HERMES_DASHBOARD=1 \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 The dashboard is supervised by s6 — if it crashes, `s6-supervise` restarts it automatically after a short backoff. Dashboard stdout/stderr is forwarded to `docker logs <container>` (no prefix; the gateway's own output now lives in a per-profile s6-log file — see [Where the logs go](#where-the-logs-go) below — so the two streams don't clash).
@@ -168,7 +176,7 @@ To open an interactive chat session against a running data directory:
 ```sh
 docker run -it --rm \
   -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent
+  hermes-agent
 ```
 
 Or if you have already opened a terminal in your running container (via Docker Desktop for instance), just run:
@@ -294,7 +302,8 @@ In those cases, declare one service per profile with distinct `container_name`, 
 ```yaml
 services:
   hermes-work:
-    image: nousresearch/hermes-agent:latest
+    build: .
+    image: hermes-agent
     container_name: hermes-work
     restart: unless-stopped
     command: gateway run
@@ -304,7 +313,8 @@ services:
       - ~/.hermes-work:/opt/data
 
   hermes-personal:
-    image: nousresearch/hermes-agent:latest
+    build: .
+    image: hermes-agent
     container_name: hermes-personal
     restart: unless-stopped
     command: gateway run
@@ -341,7 +351,7 @@ docker run -it --rm \
   -v ~/.hermes:/opt/data \
   -e ANTHROPIC_API_KEY="sk-ant-..." \
   -e OPENAI_API_KEY="sk-..." \
-  nousresearch/hermes-agent
+  hermes-agent
 ```
 
 Direct `-e` flags override values from `.env`. This is useful for CI/CD or secrets-manager integrations where you don't want keys on disk.
@@ -357,7 +367,8 @@ For persistent deployment with both the gateway and dashboard, a `docker-compose
 ```yaml
 services:
   hermes:
-    image: nousresearch/hermes-agent:latest
+    build: .
+    image: hermes-agent
     container_name: hermes
     restart: unless-stopped
     command: gateway run
@@ -412,7 +423,7 @@ ctl.!default {
 Then build a small derived image with the ALSA PulseAudio plugin installed:
 
 ```dockerfile title="Dockerfile.audio"
-FROM nousresearch/hermes-agent:latest
+FROM hermes-agent
 
 USER root
 RUN apt-get update \
@@ -479,7 +490,7 @@ docker run -d \
   --restart unless-stopped \
   --memory=4g --cpus=2 \
   -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 ## What the Dockerfile does
@@ -544,26 +555,27 @@ Each profile created with `hermes profile create <name>` automatically gets an s
 
 ## Upgrading
 
-Pull the latest image and recreate the container. Your data directory is
+From this fork’s current-ops checkout on the host, rebuild the image and recreate the container. Your data directory is
 preserved, and the container runs non-interactive config-schema migrations
 against the mounted `$HERMES_HOME/config.yaml` before starting the gateway.
 When a migration is needed, Hermes writes timestamped backups next to
 `config.yaml` and `.env` first.
 
 ```sh
-docker pull nousresearch/hermes-agent:latest
+git pull --ff-only origin current-ops
+docker build --pull -t hermes-agent .
 docker rm -f hermes
 docker run -d \
   --name hermes \
   --restart unless-stopped \
   -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 Or with Docker Compose:
 
 ```sh
-docker compose pull
+docker compose build --pull
 docker compose up -d
 ```
 
@@ -594,10 +606,10 @@ This is a good fit for tools that are quick to install and used occasionally. Fo
 
 ### Durable installs — build a derived image
 
-When a tool must be available immediately on every container start with no re-install delay, build a new image that inherits from `nousresearch/hermes-agent` and installs the tool in a layer:
+When a tool must be available immediately on every container start with no re-install delay, build a new image that inherits from `hermes-agent` and installs the tool in a layer:
 
 ```dockerfile
-FROM nousresearch/hermes-agent:latest
+FROM hermes-agent
 
 USER root
 RUN apt-get update \
@@ -618,7 +630,7 @@ docker run -d \
   my-hermes:latest gateway run
 ```
 
-The entrypoint script and `/opt/data` semantics are inherited unchanged, so the rest of this page still applies. Remember to rebuild the image when pulling a newer upstream `nousresearch/hermes-agent`.
+The entrypoint script and `/opt/data` semantics are inherited unchanged, so the rest of this page still applies. Remember to rebuild the image when pulling a newer upstream `hermes-agent`.
 
 ### Complex tools or multi-service stacks — run a sidecar container
 
@@ -627,7 +639,8 @@ For tools that bring their own service (a database, a web server, a queue, a hea
 ```yaml
 services:
   hermes:
-    image: nousresearch/hermes-agent:latest
+    build: .
+    image: hermes-agent
     container_name: hermes
     restart: unless-stopped
     command: gateway run
@@ -685,7 +698,8 @@ services:
             - capabilities: [gpu]
 
   hermes:
-    image: nousresearch/hermes-agent:latest
+    build: .
+    image: hermes-agent
     container_name: hermes
     restart: unless-stopped
     command: gateway run
@@ -729,7 +743,7 @@ docker run -d \
   --name hermes \
   -v ~/.hermes:/opt/data \
   -p 8642:8642 \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 ```yaml
@@ -748,7 +762,7 @@ docker run -d \
   --name hermes \
   --network host \
   -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 ```yaml
@@ -812,7 +826,7 @@ docker run -d \
   --name hermes \
   -e PUID=1000 -e PGID=10 \
   -v /volume1/docker/hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 `docker exec hermes <cmd>` automatically drops to UID 10000 too — see [`docker exec` automatically drops to the `hermes` user](#docker-exec-automatically-drops-to-the-hermes-user) for details and the per-invocation opt-out.
@@ -840,7 +854,7 @@ docker run -d \
   --name hermes \
   --shm-size=1g \
   -v ~/.hermes:/opt/data \
-  nousresearch/hermes-agent gateway run
+  hermes-agent gateway run
 ```
 
 ### Gateway not reconnecting after network issues
@@ -855,6 +869,6 @@ docker restart hermes
 
 ```sh
 docker logs --tail 50 hermes          # Recent logs
-docker run -it --rm nousresearch/hermes-agent:latest version     # Verify version
+docker run -it --rm hermes-agent version     # Verify version
 docker stats hermes                    # Resource usage
 ```

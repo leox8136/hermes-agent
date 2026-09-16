@@ -99,7 +99,7 @@ def test_admission_marker_refuses_even_on_git_checkout(tmp_path, monkeypatch):
     refusal = evaluate_update_admission(tmp_path)
     assert refusal is not None
     assert refusal.code == "image-marker"
-    assert "docker pull" in refusal.update_command
+    assert "docker compose build --pull" in refusal.update_command
 
 
 def test_admission_invalid_marker_fails_closed(tmp_path, monkeypatch):
@@ -111,7 +111,7 @@ def test_admission_invalid_marker_fails_closed(tmp_path, monkeypatch):
     refusal = evaluate_update_admission(tmp_path)
     assert refusal is not None
     assert refusal.code == "image-marker-invalid"
-    assert "docker pull" in refusal.update_command
+    assert "docker compose build --pull" in refusal.update_command
 
 
 def test_admission_no_marker_falls_back_to_heuristics(tmp_path, monkeypatch):

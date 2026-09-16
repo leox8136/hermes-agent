@@ -67,7 +67,11 @@ def test_venv_launcher_bypasses_uv_console_script_that_requires_realpath(tmp_pat
             "setup_path",
         ]
     )
+    home = tmp_path / "home"
+    home.mkdir()
     env = os.environ | {
+        "HOME": str(home),
+        "HERMES_HOME": str(home / ".hermes"),
         "USE_VENV": "true",
         "INSTALL_DIR": str(install_dir),
         "DISTRO": "macos",

@@ -83,7 +83,7 @@ Packaging/repository/signing problems for this option should be reported to the 
 Hermes now ships a Termux-aware installer path:
 
 ```bash
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/leox8136/hermes-agent/current-ops/scripts/install.sh | bash
 ```
 
 On Termux, the installer automatically:
@@ -135,7 +135,7 @@ Then use `python3.13` in place of `python` in the commands below
 ### 2. Clone Hermes
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
+git clone --branch current-ops https://github.com/leox8136/hermes-agent.git
 cd hermes-agent
 ```
 

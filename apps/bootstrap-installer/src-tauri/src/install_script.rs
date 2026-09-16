@@ -214,8 +214,8 @@ pub struct Pin {
 fn cached_path(kind: ScriptKind, commit_or_ref: &str) -> PathBuf {
     let safe = sanitize_ref(commit_or_ref);
     let filename = match kind {
-        ScriptKind::Ps1 => format!("install-{safe}.ps1"),
-        ScriptKind::Sh => format!("install-{safe}.sh"),
+        ScriptKind::Ps1 => format!("install-leox8136-{safe}.ps1"),
+        ScriptKind::Sh => format!("install-leox8136-{safe}.sh"),
     };
     paths::bootstrap_cache_dir().join(filename)
 }
@@ -324,7 +324,7 @@ fn upgrade_cached_script(kind: ScriptKind, cached: &Path, emit_log: &impl Fn(&st
 /// falling back to the cached script.
 async fn download(kind: ScriptKind, commit_or_ref: &str, dest_path: &Path) -> Result<()> {
     let url = format!(
-        "https://raw.githubusercontent.com/NousResearch/hermes-agent/{}/scripts/{}",
+        "https://raw.githubusercontent.com/leox8136/hermes-agent/{}/scripts/{}",
         commit_or_ref,
         kind.filename()
     );

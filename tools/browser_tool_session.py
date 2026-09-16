@@ -23,10 +23,10 @@ from tools import browser_tool_lightpanda_fallback as _lp
 from tools import browser_tool_real_profile as _real_profile
 from tools import browser_tool_snapshot as _snapshot
 
-_DOCKER_PULL = "docker pull ghcr.io/nousresearch/hermes-agent:latest"
+_DOCKER_REBUILD = "docker compose build --pull && docker compose up -d"
 _CHROMIUM_INSTALL = "npx agent-browser install --with-deps (or: npx playwright install --with-deps chromium)"
-_CHROMIUM_MISSING_DOCKER_HINT = ("Chromium browser is missing. You're running in Docker — pull the latest image "
-                                 f"to get the bundled Chromium: {_DOCKER_PULL}")
+_CHROMIUM_MISSING_DOCKER_HINT = ("Chromium browser is missing. You're running in Docker — rebuild this fork on the host "
+                                 f"to get the bundled Chromium: {_DOCKER_REBUILD}")
 _CHROMIUM_MISSING_HINT = f"Chromium browser is missing. Install it with: {_CHROMIUM_INSTALL}"
 
 
@@ -87,7 +87,7 @@ def _format_browser_timeout_error(
     elif command == "open" and _cloud._is_local_mode():
         if _install._running_in_docker():
             parts.append("The browser daemon may still be starting or Chromium may be "
-                         f"missing. Pull the latest image: {_DOCKER_PULL}")
+                         f"missing. Rebuild this fork on the host: {_DOCKER_REBUILD}")
         else:
             parts.append("The browser daemon may still be starting, or Chromium may be "
                          f"missing system libraries. Install/repair with: {_CHROMIUM_INSTALL}")

