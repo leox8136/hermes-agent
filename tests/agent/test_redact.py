@@ -2,6 +2,7 @@
 
 import ast
 import logging
+import shlex
 
 import pytest
 
@@ -414,6 +415,19 @@ class TestAuthHeaders:
 
 
 class TestApiKeyHeaders:
+    @pytest.mark.parametrize("quote", ["'", '"'])
+    @pytest.mark.parametrize("header", ["X-API-KEY", "x-goog-api-key", "api-key", "apikey", "x-api-token", "x-auth-token", "x-access-token"])
+    def test_curl_header_preserves_quotes_and_following_arguments(self, quote, header):
+        text = (
+            f"curl -H {quote}{header}: YOUR_KEY{quote}"
+            " https://example.invalid --max-time 10 -H 'Accept: application/json'"
+        )
+        result = redact_sensitive_text(text, force=True)
+        assert result == text.replace("YOUR_KEY", "***")
+        expected_args = shlex.split(text)
+        expected_args[2] = f"{header}: ***"
+        assert shlex.split(result) == expected_args
+
     def test_x_api_key_header_masked(self):
         text = "x-api-key: opaque-provider-key-1234567890"
         result = redact_sensitive_text(text)
