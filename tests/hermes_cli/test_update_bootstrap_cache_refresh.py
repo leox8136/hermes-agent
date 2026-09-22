@@ -149,3 +149,19 @@ def test_never_raises_on_io_error(tmp_path):
     home, root = _setup(tmp_path)
     with patch.object(cli_main, "get_hermes_home", side_effect=OSError("boom")):
         cli_main._refresh_bootstrap_cache_scripts()  # must not raise
+
+
+def test_default_channel_refreshes_fork_cache_without_touching_commit_pins(tmp_path):
+    from hermes_cli.update_target import DEFAULT_UPDATE_BRANCH
+    from hermes_cli.update_cmd_windows import _refresh_bootstrap_cache_scripts
+
+    home, root = _setup(tmp_path)
+    cache = home / "bootstrap-cache"
+    branch_cache = cache / f"install-leox8136-{DEFAULT_UPDATE_BRANCH}.sh"
+    pinned_cache = cache / f"install-leox8136-{'a' * 40}.sh"
+    branch_cache.write_bytes(b"stale branch")
+    pinned_cache.write_bytes(b"immutable pin")
+    with patch.object(cli_main, "get_hermes_home", return_value=str(home)), patch.object(cli_main, "PROJECT_ROOT", root):
+        _refresh_bootstrap_cache_scripts()
+    assert branch_cache.read_bytes() == (root / "scripts/install.sh").read_bytes()
+    assert pinned_cache.read_bytes() == b"immutable pin"

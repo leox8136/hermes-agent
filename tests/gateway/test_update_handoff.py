@@ -44,8 +44,10 @@ def restart(*a):
         time.sleep(1)
 cmd._restart_gateway_fleet_after_update = restart
 opts = SimpleNamespace(assume_yes=True, gw_input_fn=None, active_lazy_features=[],
-                       active_tool_dependencies=[], pre_update_version="old")
-cmd._apply_pulled_update(["git"], "current-ops", "old", SimpleNamespace(in_place_update=False), opts,
+                       active_tool_dependencies=[], pre_update_version="old", no_gateway_restart=False)
+cmd._write_fleet_restart_pending_marker(expected_sha=ur._code_identity(refresh=True)["sha"],
+    runtimes=plan.to_dict()["runtimes"])
+cmd._finish_pulled_update(["git"], "current-ops", "old", opts,
     gateway_mode=True, is_fork=True, desktop_dir=home, had_desktop_app_before_update=False,
     pre_update_snapshot_id=None, _pre_update_plan=plan, _windows_gateway_resume=None)
 '''
@@ -57,7 +59,7 @@ from gateway.control_socket import GatewayControlServer
 home = Path(sys.argv[1])
 async def main():
     server = GatewayControlServer(home, verb_handlers={"identify": lambda: {
-        "pid": os.getpid(), "code_sha": sys.argv[2] or None, "code_version": "new", "supervisor": "systemd"}})
+        "pid": os.getpid(), "served_profiles": json.loads(sys.argv[3]), "code_sha": sys.argv[2] or None, "code_version": "new", "supervisor": "systemd"}})
     assert await server.start()
     (home / "socket-ready").write_text("ready")
     try:
@@ -82,7 +84,7 @@ def _stop(proc):
     proc.wait(timeout=10)
 
 
-async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True):
+async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True, multiplex=False):
     import gateway.run as run
     import hermes_cli.update_handoff as handoff
     from gateway.config import Platform
@@ -92,8 +94,10 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
     monkeypatch.setattr(Path, "home", lambda: home.parent)
     monkeypatch.setattr(run, "_hermes_home", home)
     home.mkdir()
+    monkeypatch.setenv("HERMES_GATEWAY_LOCK_DIR", str(home / "host-locks"))
     work = home / "profiles" / "work"
     work.mkdir(parents=True)
+    (work / "config.yaml").write_text("{}\n")
     (home / ".update_pending.json").write_text(json.dumps({"platform": "telegram", "chat_id": "ops"}))
     runner = object.__new__(GatewayNotificationsMixin)
     adapter = SimpleNamespace(send=AsyncMock(return_value=SimpleNamespace(success=True)))
@@ -102,9 +106,9 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
     proc = launch(home)
     sockets = []
 
-    def gateway(profile_home, sha):
+    def gateway(profile_home, sha, served_profiles=None):
         (profile_home / "socket-ready").unlink(missing_ok=True)
-        child = subprocess.Popen([sys.executable, "-c", SOCKET, str(profile_home), sha], cwd=ROOT)
+        child = subprocess.Popen([sys.executable, "-c", SOCKET, str(profile_home), sha, json.dumps(served_profiles or [])], cwd=ROOT)
         sockets.append(child)
         _wait(profile_home / "socket-ready")
         return child
@@ -121,7 +125,7 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
         assert not await runner._send_update_notification()
         adapter.send.assert_not_called()
         terminate(proc, home)
-        gateway(home, expected)
+        default_gateway = gateway(home, expected)
         # An absent planned profile cannot be covered by the healthy default profile.
         assert not await runner._send_update_notification()
         assert (home / "fleet_restart_pending").exists()
@@ -131,7 +135,19 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
             adapter.send.assert_not_called()
             assert (home / "fleet_restart_pending").exists()
             _stop(child)
-        gateway(work, expected)
+        if multiplex:
+            _stop(default_gateway)
+            gateway(home, expected, ["default", "work"])
+        else:
+            gateway(work, expected)
+        # A successor must never settle a different update's host-wide obligation.
+        from hermes_cli.update_host_obligation import read_host_obligation, amend_host_obligation
+        captured = read_host_obligation()
+        amend_host_obligation(expected_sha="newer-update")
+        assert not await runner._send_update_notification()
+        assert read_host_obligation()["expected_sha"] == "newer-update"
+        adapter.send.assert_not_called()
+        amend_host_obligation(expected_sha=captured["expected_sha"])
         # Crash after receipt + marker settlement but before notification IPC publication.
         write = handoff.atomic_json_write
         def fail_exit(path, *a, **kw):
@@ -147,12 +163,14 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
         adapter.send.assert_awaited_once()
         assert ("success" if maintenance_ok else "failed") in adapter.send.call_args.args[1]
         assert not (home / "fleet_restart_pending").exists()
+        from hermes_cli.update_host_obligation import host_obligation_present
+        assert not host_obligation_present()
         assert not (home / HANDOFF_NAME).exists()
         receipt = json.loads((home / "logs/update_receipts/latest.json").read_text())
         assert receipt["outcome"] == ("success" if maintenance_ok else "partial")
         assert receipt["finished_at"]
         assert receipt["post_update"]["sha"] == expected
-        assert {row["profile"] for row in receipt["fleet"]} == {"default", "work"}
+        assert {row["profile"] for row in receipt["fleet"]} == ({"default"} if multiplex else {"default", "work"})
         assert receipt["gateway_restart"]["recovered_after_updater_exit"] is True
         assert not await runner._send_update_notification()
         adapter.send.assert_awaited_once()
@@ -164,13 +182,14 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("maintenance_ok", [True, False])
-async def test_killed_updater_is_verified_by_successor_before_success(tmp_path, monkeypatch, maintenance_ok):
+@pytest.mark.parametrize("multiplex", [True, False])
+async def test_killed_updater_is_verified_by_successor_before_success(tmp_path, monkeypatch, maintenance_ok, multiplex):
     def launch(home):
         script = UPDATER.replace("_run_post_update_maintenance = lambda **k: True",
                                  f"_run_post_update_maintenance = lambda **k: {maintenance_ok}")
         return subprocess.Popen([sys.executable, "-c", script], cwd=ROOT, env={**os.environ, "HERMES_HOME": str(home)})
     await _exercise(tmp_path / ".hermes", monkeypatch, launch, lambda proc, home: _stop(proc),
-                    maintenance_ok=maintenance_ok)
+                    maintenance_ok=maintenance_ok, multiplex=multiplex)
 
 
 @pytest.mark.linux_only
@@ -190,7 +209,7 @@ async def test_systemd_mixed_kills_updater_but_successor_finishes_receipt(tmp_pa
         parent = "import subprocess,sys,time; subprocess.Popen([sys.executable,sys.argv[1]]); time.sleep(120)"
         subprocess.run(["systemd-run", "--user", "--quiet", f"--unit={unit}", "--property=KillMode=mixed",
                         "--property=TimeoutStopSec=1", f"--working-directory={ROOT}",
-                        f"--setenv=HERMES_HOME={home}", f"--setenv=PYTHONPATH={ROOT}",
+                        f"--setenv=HERMES_HOME={home}", f"--setenv=HERMES_GATEWAY_LOCK_DIR={home / 'host-locks'}", f"--setenv=PYTHONPATH={ROOT}",
                         sys.executable, "-c", parent, str(script)], check=True)
         return unit
     def terminate(unit, home):
