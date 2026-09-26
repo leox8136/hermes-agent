@@ -192,6 +192,47 @@ async def test_killed_updater_is_verified_by_successor_before_success(tmp_path, 
                     maintenance_ok=maintenance_ok, multiplex=multiplex)
 
 
+@pytest.mark.asyncio
+async def test_deferred_self_restart_exits_before_successor_verification(tmp_path, monkeypatch):
+    restart_stub = """
+import hermes_cli.update_cmd_fleet as fleet
+cmd._finish_dashboard_update_cleanup = lambda *a, **k: None
+cmd._surviving_pre_update_serve_runtimes = lambda *a: []
+fleet._print_legacy_units_warning = lambda: None
+fleet._collect_fleet_snapshot = lambda *a: [
+    {"profile": profile, "pid": os.getpid(), "code_sha": "old", "state": "restart_pending"}
+    for profile in ("default", "work")
+]
+def restart(*a):
+    return cmd._GatewayRestartOutcome(
+        incomplete=False, phase_errors=[], restarted_services=[], failed_or_stale_units=[],
+        externally_supervised_profiles=[], killed_pids=set(),
+        pre_restart_gateway_pids=[os.getpid()], relaunched_profiles=["default", "work"],
+        self_restart_pending_pids={os.getpid()})
+cmd._restart_gateway_fleet_after_update = restart
+"""
+    def launch(home):
+        start = UPDATER.index("# A SIGKILL")
+        end = UPDATER.index("opts =", start)
+        script = UPDATER[:start] + restart_stub + UPDATER[end:] + """
+assert ur._current is None, "command boundary must not finalize a pending receipt"
+(home / "ready").write_text(str(os.getpid()))
+while not (home / "allow-exit").exists():
+    time.sleep(0.05)
+"""
+        return subprocess.Popen([sys.executable, "-c", script], cwd=ROOT,
+                                env={**os.environ, "HERMES_HOME": str(home)})
+
+    def finish(proc, home):
+        (home / "allow-exit").touch()
+        try:
+            assert proc.wait(timeout=10) == 0
+        finally:
+            _stop(proc)
+
+    await _exercise(tmp_path / ".hermes", monkeypatch, launch, finish, multiplex=True)
+
+
 @pytest.mark.linux_only
 @pytest.mark.live_system_guard_bypass
 @pytest.mark.asyncio

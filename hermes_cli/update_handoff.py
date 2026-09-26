@@ -190,6 +190,17 @@ def _print_manual_continuation(cmd: list[str], exc: OSError) -> None:
     print(f"    {subprocess.list2cmdline(cmd)}")
 
 
+def _post_swap_cwd() -> str:
+    """Directory the child must start in so a stale editable finder can still import.
+
+    ``python -m`` puts the process cwd on ``sys.path[0]``, not the checkout. Invoking
+    ``hermes update`` from elsewhere then resolves new top-level names only through the
+    installed finder. If that map is stale, the child dies in ``import hermes_cli.main``
+    before the dependency sync can refresh it (#119466).
+    """
+    return str(Path(__file__).resolve().parent.parent)
+
+
 def continue_update_in_fresh_interpreter(payload: dict[str, Any], *, argv_tail: list[str]) -> int | None:
     """Run the post-swap tail in a child interpreter on the pulled code.
 
@@ -208,13 +219,15 @@ def continue_update_in_fresh_interpreter(payload: dict[str, Any], *, argv_tail: 
     handoff_path = write_handoff(payload)
     cmd = post_swap_command(handoff_path, argv_tail)
     env = post_swap_child_env()
+    cwd = _post_swap_cwd()
     logger.debug("Post-swap hand-off → %s", subprocess.list2cmdline(cmd))
     sys.stdout.flush()
     sys.stderr.flush()
 
     if _running_from_windows_shim():
         try:
-            subprocess.Popen(cmd, env=detached_shim_child_env(env), stdin=subprocess.DEVNULL)
+            subprocess.Popen(
+                cmd, env=detached_shim_child_env(env), stdin=subprocess.DEVNULL, cwd=cwd)
         except OSError as exc:
             _print_manual_continuation(cmd, exc)
             return None
@@ -224,7 +237,7 @@ def continue_update_in_fresh_interpreter(payload: dict[str, Any], *, argv_tail: 
         return 0
 
     try:
-        child = subprocess.Popen(cmd, env=env, stdin=sys.stdin)
+        child = subprocess.Popen(cmd, env=env, stdin=sys.stdin, cwd=cwd)
     except OSError as exc:
         _print_manual_continuation(cmd, exc)
         return None
@@ -410,6 +423,33 @@ def resume_gateway_update_handoff(home: Path) -> bool:
     except (OSError, ValueError, KeyError, TypeError, RuntimeError):
         logger.exception("Update handoff verification remains pending")
         return False
+
+
+def defer_gateway_update_handoff(fleet: list[dict], *, update_complete: bool) -> bool:
+    """Let the updater exit so its ancestor can restart; only the successor may finish."""
+    from hermes_constants import get_process_hermes_home
+    from hermes_cli import update_receipt as ur
+
+    home = get_process_hermes_home()
+    path = home / HANDOFF_NAME
+    if not path.exists():
+        return False
+    with _handoff_lock(home) as acquired:
+        if not acquired:
+            raise RuntimeError("Update handoff is being settled by another process")
+        handoff = json.loads(path.read_text(encoding="utf-8"))
+        if handoff["owner_pid"] != os.getpid() or not _owner_alive(handoff):
+            raise RuntimeError("Another updater owns the restart verification handoff")
+        if ur._current is None:
+            raise RuntimeError("Cannot defer restart verification without its open receipt")
+        handoff["receipt"] = copy.deepcopy(ur._current.data)
+        handoff["receipt"]["fleet"] = fleet
+        handoff["receipt"]["handoff"] = {"id": handoff["id"], "phase": handoff["phase"]}
+        handoff["update_complete"] = bool(update_complete)
+        _write(path, handoff)
+        _persist_receipt(home, handoff)
+        ur.detach_update_receipt()
+    return True
 
 
 def checkpoint_verified_handoff(receipt_path: Path | None, *, fleet_verified: bool) -> None:
