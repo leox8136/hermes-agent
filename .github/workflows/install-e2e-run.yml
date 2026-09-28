@@ -32,7 +32,7 @@ name: Install & Update E2E (reusable)
 #       with:
 #         install-method: installer-script
 #         update-method: hermes-update
-#         install-ref: refs/heads/main
+#         install-ref: refs/heads/current-ops
 
 on:
   workflow_call:
@@ -46,10 +46,10 @@ on:
         required: true
         type: string
       install-ref:
-        description: 'What to install before updating: a branch, a tag (v2026.7.7), or a SHA reachable from main.'
+        description: 'What to install before updating: a branch, a tag (v2026.7.7), or a SHA reachable from current-ops.'
         required: false
         type: string
-        default: refs/heads/main
+        default: refs/heads/current-ops
       leg-id:
         description: 'Artifact-safe matrix leg id (from generate-e2e-matrix.mjs legId). Names this leg''s logs + player artifacts so the report job can link a row to its zip.'
         required: true

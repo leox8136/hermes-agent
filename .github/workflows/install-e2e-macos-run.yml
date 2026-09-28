@@ -29,10 +29,10 @@ on:
         required: true
         type: string
       install-ref:
-        description: 'What to install before updating: a branch, a tag, or a SHA reachable from main.'
+        description: 'What to install before updating: a branch, a tag, or a SHA reachable from current-ops.'
         required: false
         type: string
-        default: refs/heads/main
+        default: refs/heads/current-ops
       tag-has-desktop:
         description: "Whether install-ref ships the desktop app (apps/desktop). The caller annotates this from the tag's own tree; desktop-method legs from pre-desktop releases natively skip."
         required: false

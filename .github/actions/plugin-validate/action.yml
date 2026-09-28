@@ -5,7 +5,7 @@ description: >-
   `hermes plugins validate`. Drop this into your plugin repo's CI:
 
     - uses: actions/checkout@<sha>
-    - uses: NousResearch/hermes-agent/.github/actions/plugin-validate@main
+    - uses: leox8136/hermes-agent/.github/actions/plugin-validate@current-ops
       with:
         path: .
 
@@ -19,7 +19,7 @@ inputs:
     default: "."
   hermes-ref:
     description: hermes-agent git ref (branch/tag/sha) to install and validate with.
-    default: "main"
+    default: "current-ops"
 
 runs:
   using: composite
@@ -36,8 +36,8 @@ runs:
       run: |
         set -euo pipefail
         # CI-context install from git; the ref lets plugin authors validate
-        # against a pinned hermes release instead of main.
-        pip install "git+https://github.com/NousResearch/hermes-agent@${_HERMES_REF}"
+        # against a pinned hermes release instead of current-ops.
+        pip install "git+https://github.com/leox8136/hermes-agent@${_HERMES_REF}"
 
     - name: Validate plugin
       shell: bash
