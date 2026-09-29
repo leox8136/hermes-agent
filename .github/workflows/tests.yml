@@ -2,6 +2,11 @@ name: Tests
 
 on:
   workflow_call:
+    inputs:
+      ops_only:
+        description: Run the Linux operations regression suite only
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -119,12 +124,17 @@ jobs:
         # with bounded parallelism. No xdist, no shared workers, no
         # module-level state leakage between files.
         #
-        # No --files: the runner discovers the suite itself. The discovered
-        # set is identical to the list the removed matrix job used to pass in.
+        # Routine runs use the maintained operations list; full runs discover
+        # the entire upstream suite for release validation.
         run: |
           source .venv/bin/activate
-          HERMES_TEST_WORKERS="$(nproc)" scripts/run_tests.sh
+          if [ "$OPS_ONLY" = true ]; then
+            HERMES_TEST_WORKERS="$(nproc)" bash scripts/ci/run_ops_tests.sh
+          else
+            HERMES_TEST_WORKERS="$(nproc)" scripts/run_tests.sh
+          fi
         env:
+          OPS_ONLY: ${{ inputs.ops_only }}
           # Ensure tests don't accidentally call real APIs
           OPENROUTER_API_KEY: ""
           OPENAI_API_KEY: ""
@@ -140,6 +150,7 @@ jobs:
           key: test-durations-${{ github.run_id }}
 
   e2e:
+    if: ${{ !inputs.ops_only }}
     # The core suites spawn real serve / gateway / tui_gateway / MCP / SQLite
     # writer processes per test; limit simultaneous files on standard runners.
     runs-on: ubuntu-latest
@@ -253,6 +264,7 @@ jobs:
           NOUS_API_KEY: ""
 
   e2e-upgrade:
+    if: ${{ !inputs.ops_only }}
     # tests/e2e/core/upgrade: a real N-1 -> HEAD `hermes update` (clean,
     # autostash, killed mid-pull / mid-deps, offline), fresh-process import and
     # entrypoint smoke, and the config round-trip property matrix. Its own job:

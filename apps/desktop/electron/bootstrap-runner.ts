@@ -38,11 +38,11 @@ import fsp from 'node:fs/promises'
 import https from 'node:https'
 import path from 'node:path'
 
-import { DEFAULT_UPDATE_BRANCH, DEFAULT_UPDATE_REPO } from './update-branch'
 // Relative, not `@hermes/shared/ansi`: the electron bundle is built by esbuild
 // with no tsconfig path resolution (see scripts/bundle-electron-main.mjs).
 import { stripAnsi } from '../../shared/src/ansi'
 
+import { DEFAULT_UPDATE_BRANCH, DEFAULT_UPDATE_REPO } from './update-branch'
 import { hiddenWindowsChildOptions } from './windows-child-options'
 
 const IS_WINDOWS = process.platform === 'win32'

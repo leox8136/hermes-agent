@@ -77,7 +77,7 @@ def test_install_sh_repository_stage_parks_local_commits_before_reset(tmp_path: 
     }
 
     result = subprocess.run(
-        ["bash", str(INSTALL_SH), "--stage", "repository", "--non-interactive"],
+        ["bash", str(INSTALL_SH), "--stage", "repository", "--non-interactive", "--branch", "main"],
         cwd=tmp_path, env=env, capture_output=True, text=True,
     )
 
@@ -96,7 +96,7 @@ def test_install_ps1_repository_stage_parks_local_commits_before_reset(tmp_path:
     result = subprocess.run(
         [
             POWERSHELL, "-NoProfile", "-File", str(INSTALL_PS1),
-            "-Stage", "repository", "-NonInteractive",
+            "-Stage", "repository", "-NonInteractive", "-Branch", "main",
             "-InstallDir", str(managed),
             "-HermesHome", str(tmp_path / "hermes-home"),
         ],
