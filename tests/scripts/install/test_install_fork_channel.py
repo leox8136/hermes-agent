@@ -16,7 +16,7 @@ def test_repository_stage_clones_fork_channel_and_preserves_explicit_branch(tmp_
     upstream = tmp_path / "repo"
     config = tmp_path / "gitconfig"
     def git(*args, cwd=None):
-        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+        return subprocess.run(["git", *args], cwd=cwd or tmp_path, check=True, capture_output=True, text=True).stdout.strip()
     git("init", "-b", DEFAULT_UPDATE_BRANCH, str(upstream))
     git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "base", cwd=upstream)
     git("branch", "release-test", cwd=upstream)

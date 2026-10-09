@@ -24,32 +24,35 @@ import os, time
 from pathlib import Path
 from types import SimpleNamespace
 from hermes_cli import update_cmd as cmd, update_receipt as ur
+from hermes_cli.update_handoff import HANDOFF_NAME
 from hermes_cli.update_inventory import UpdatePlan, RuntimeRecord
 home = Path(os.environ["HERMES_HOME"])
 ur.begin_update_receipt()
 ur.record_step("dependency_sync", True)
 plan = UpdatePlan(runtimes=[RuntimeRecord("gateway", "default", pid=os.getpid(), supervisor="systemd"),
                            RuntimeRecord("gateway", "work", pid=os.getpid(), supervisor="systemd")])
-for name in ["_invalidate_update_cache", "_sweep_bytecode_after_update", "_sync_python_dependencies_after_pull"]:
-    setattr(cmd, name, lambda *a, **k: None)
-cmd._verify_head_after_pull = lambda *a, **k: ur._code_identity(refresh=True)["sha"]
-cmd._update_node_dependencies = lambda: []
-cmd._m()._build_web_ui = lambda *a: None
-cmd._rebuild_desktop_after_update = lambda *a, **k: True
-cmd._run_post_update_maintenance = lambda **k: True
+from hermes_cli import update_completion, source_completion, update_handoff
+prepare_handoff = update_handoff.prepare_gateway_update_handoff
+def checked_prepare(*a, **kw):
+    assert not (home / ".update_exit_code").exists(), "success published before durable handoff"
+    return prepare_handoff(*a, **kw)
+update_handoff.prepare_gateway_update_handoff = checked_prepare
+cmd._sweep_bytecode_after_update = lambda *a: None
+cmd._fleet_restart_skip_reason = lambda *a: None
+maintenance_ok = True
+source_completion.complete_source_checkout = lambda *a, **k: maintenance_ok
 # A SIGKILL here is the service-manager failure window: no finally/atexit can run.
 def restart(*a):
     (home / "ready").write_text(str(os.getpid()))
     while True:
         time.sleep(1)
 cmd._restart_gateway_fleet_after_update = restart
-opts = SimpleNamespace(assume_yes=True, gw_input_fn=None, active_lazy_features=[],
-                       active_tool_dependencies=[], pre_update_version="old", no_gateway_restart=False)
+request = dict(source=str(Path.cwd()), branch="current-ops", sibling_snapshots={}, plan=plan.to_dict(),
+               desktop=False, assume_yes=True, gateway_mode=True, snapshot_id=None,
+               pre_update_version="old", windows_resume=None, no_gateway_restart=False)
 cmd._write_fleet_restart_pending_marker(expected_sha=ur._code_identity(refresh=True)["sha"],
     runtimes=plan.to_dict()["runtimes"])
-cmd._finish_pulled_update(["git"], "current-ops", "old", opts,
-    gateway_mode=True, is_fork=True, desktop_dir=home, had_desktop_app_before_update=False,
-    pre_update_snapshot_id=None, _pre_update_plan=plan, _windows_gateway_resume=None)
+update_completion._complete_selected(request)
 '''
 
 SOCKET = '''
@@ -86,7 +89,7 @@ def _stop(proc):
 
 async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True, multiplex=False):
     import gateway.run as run
-    import hermes_cli.update_handoff as handoff
+    import utils
     from gateway.config import Platform
     from gateway.run_notifications import GatewayNotificationsMixin
 
@@ -118,7 +121,7 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
         state = json.loads((home / HANDOFF_NAME).read_text())
         expected = state["expected"]["sha"]
         assert state["receipt"]["steps"][0]["name"] == "dependency_sync"
-        assert state["receipt"]["finished_at"] is None
+        assert state["phase"] == "awaiting_restart_verification"
         assert not (home / ".update_exit_code").exists()
         # Even a legacy wrapper's early zero must not bypass the durable obligation.
         (home / ".update_exit_code").write_text("0")
@@ -149,16 +152,16 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
         adapter.send.assert_not_called()
         amend_host_obligation(expected_sha=captured["expected_sha"])
         # Crash after receipt + marker settlement but before notification IPC publication.
-        write = handoff.atomic_json_write
+        write = utils.atomic_json_write
         def fail_exit(path, *a, **kw):
             if Path(path).name == ".update_exit_code":
                 raise OSError("simulated interrupted completion write")
             return write(path, *a, **kw)
-        monkeypatch.setattr(handoff, "atomic_json_write", fail_exit)
+        monkeypatch.setattr(utils, "atomic_json_write", fail_exit)
         assert not await runner._send_update_notification()
         assert (home / HANDOFF_NAME).exists()
         adapter.send.assert_not_called()
-        monkeypatch.setattr(handoff, "atomic_json_write", write)
+        monkeypatch.setattr(utils, "atomic_json_write", write)
         assert await runner._send_update_notification()
         adapter.send.assert_awaited_once()
         assert ("success" if maintenance_ok else "failed") in adapter.send.call_args.args[1]
@@ -185,8 +188,7 @@ async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True
 @pytest.mark.parametrize("multiplex", [True, False])
 async def test_killed_updater_is_verified_by_successor_before_success(tmp_path, monkeypatch, maintenance_ok, multiplex):
     def launch(home):
-        script = UPDATER.replace("_run_post_update_maintenance = lambda **k: True",
-                                 f"_run_post_update_maintenance = lambda **k: {maintenance_ok}")
+        script = UPDATER.replace("maintenance_ok = True", f"maintenance_ok = {maintenance_ok}")
         return subprocess.Popen([sys.executable, "-c", script], cwd=ROOT, env={**os.environ, "HERMES_HOME": str(home)})
     await _exercise(tmp_path / ".hermes", monkeypatch, launch, lambda proc, home: _stop(proc),
                     maintenance_ok=maintenance_ok, multiplex=multiplex)
@@ -195,8 +197,10 @@ async def test_killed_updater_is_verified_by_successor_before_success(tmp_path, 
 @pytest.mark.asyncio
 async def test_deferred_self_restart_exits_before_successor_verification(tmp_path, monkeypatch):
     restart_stub = """
-import hermes_cli.update_cmd_fleet as fleet
-cmd._finish_dashboard_update_cleanup = lambda *a, **k: None
+import hermes_cli.update_cmd_fleet_verify as fleet
+fleet._refresh_dashboard_after_update = lambda *a, **k: []
+import hermes_cli.update_cmd_maint as maintenance
+maintenance._refresh_dashboard_after_update = lambda *a, **k: []
 cmd._surviving_pre_update_serve_runtimes = lambda *a: []
 fleet._print_legacy_units_warning = lambda: None
 fleet._collect_fleet_snapshot = lambda *a: [
@@ -213,9 +217,9 @@ cmd._restart_gateway_fleet_after_update = restart
 """
     def launch(home):
         start = UPDATER.index("# A SIGKILL")
-        end = UPDATER.index("opts =", start)
+        end = UPDATER.index("request =", start)
         script = UPDATER[:start] + restart_stub + UPDATER[end:] + """
-assert ur._current is None, "command boundary must not finalize a pending receipt"
+assert (home / HANDOFF_NAME).exists(), "fleet verification must remain pending"
 (home / "ready").write_text(str(os.getpid()))
 while not (home / "allow-exit").exists():
     time.sleep(0.05)
@@ -233,7 +237,7 @@ while not (home / "allow-exit").exists():
     await _exercise(tmp_path / ".hermes", monkeypatch, launch, finish, multiplex=True)
 
 
-@pytest.mark.linux_only
+@pytest.mark.platforms("linux")
 @pytest.mark.live_system_guard_bypass
 @pytest.mark.asyncio
 async def test_systemd_mixed_kills_updater_but_successor_finishes_receipt(tmp_path, monkeypatch):

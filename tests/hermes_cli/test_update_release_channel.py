@@ -58,20 +58,19 @@ def test_parser_and_zip_fallback_share_fork_release_channel(tmp_path, monkeypatc
     explicit = parser.parse_args(["update", "--branch", "release-test"])
     assert _resolve_update_branch(explicit) == "release-test"
 
-    monkeypatch.setattr(main, "_capture_active_tool_dependencies", lambda: {})
     monkeypatch.setattr(update_cmd_zip, "_abort_zip_update_if_dirty_tree", lambda: None)
     requests = []
 
     class DownloadReached(Exception):
         pass
 
-    def download(branch, url):
+    def download(branch, url, target_sha=None):
         requests.append((branch, url))
         raise DownloadReached
 
     monkeypatch.setattr(update_cmd_zip, "_download_and_swap_zip", download)
     with pytest.raises(DownloadReached):
-        update_cmd_zip._update_via_zip(args)
+        update_cmd_zip._update_via_zip(args, completion_request={})
     assert requests == [(
         _resolve_update_branch(args),
         f"https://github.com/{DEFAULT_UPDATE_REPO}/archive/refs/heads/{_resolve_update_branch(args)}.zip",
