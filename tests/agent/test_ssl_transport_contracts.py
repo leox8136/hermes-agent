@@ -1,7 +1,7 @@
 """TLS assertions reach real client transports, never the host certificate store."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 import ssl
@@ -10,7 +10,7 @@ from threading import Thread
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 import httpx
 import pytest
 from truststore._ssl_constants import _original_SSLContext
@@ -22,11 +22,12 @@ from agent import model_metadata, process_bootstrap, ssl_verify
 def local_tls(tmp_path, monkeypatch):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test loopback")])
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
             .public_key(key.public_key()).serial_number(x509.random_serial_number())
             .not_valid_before(now - timedelta(days=1)).not_valid_after(now + timedelta(days=1))
             .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
             .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ip_address("127.0.0.1"))]), critical=False)
             .sign(key, hashes.SHA256()))
     bundle = tmp_path / "loopback.pem"
@@ -132,3 +133,11 @@ def test_pinned_clients_share_transport_not_close_state(local_tls, insecure):
     finally:
         a.close()
         b.close()
+
+
+def test_environment_ca_bundle_reaches_provider_transport(local_tls, monkeypatch):
+    """A valid SSL_CERT_FILE must augment OS trust for model clients (#148241)."""
+    url, bundle = local_tls
+    monkeypatch.setenv("SSL_CERT_FILE", str(bundle))
+    with httpx.Client(verify=ssl_verify.resolve_httpx_verify()) as client:
+        assert client.get(url, timeout=5).status_code == 200

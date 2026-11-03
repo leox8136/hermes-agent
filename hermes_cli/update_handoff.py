@@ -274,7 +274,7 @@ def _publish_completion(home: Path, handoff: dict) -> None:
         ):
             raise RuntimeError("A different update owns the host restart obligation")
     if marker.exists():
-        pending = json.loads(marker.read_text(encoding="utf-8"))
+        pending = json.loads(marker.read_text(encoding="utf-8-sig"))
         if pending.get("handoff_id") != handoff["id"]:
             raise RuntimeError("A newer update owns the fleet restart obligation")
     _persist_receipt(home, handoff)
@@ -303,14 +303,14 @@ def resume_gateway_update_handoff(home: Path) -> bool:
                 return False
             if not path.exists():
                 return True
-            handoff = json.loads(path.read_text(encoding="utf-8"))
+            handoff = json.loads(path.read_text(encoding="utf-8-sig"))
             if handoff.get("schema") != 1 or _owner_alive(handoff):
                 return False
             if handoff["phase"] == "completed":
                 _publish_completion(home, handoff)
                 return True
             marker = home / "fleet_restart_pending"
-            if not marker.exists() or json.loads(marker.read_text(encoding="utf-8")).get("handoff_id") != handoff["id"]:
+            if not marker.exists() or json.loads(marker.read_text(encoding="utf-8-sig")).get("handoff_id") != handoff["id"]:
                 return False
             from hermes_cli.update_receipt import collect_fleet_versions, _utc_now_iso
 
@@ -352,7 +352,7 @@ def defer_gateway_update_handoff(fleet: list[dict], *, update_complete: bool) ->
     with _handoff_lock(home) as acquired:
         if not acquired:
             raise RuntimeError("Update handoff is being settled by another process")
-        handoff = json.loads(path.read_text(encoding="utf-8"))
+        handoff = json.loads(path.read_text(encoding="utf-8-sig"))
         if handoff["owner_pid"] != os.getpid() or not _owner_alive(handoff):
             raise RuntimeError("Another updater owns the restart verification handoff")
         if ur._current.get() is None:
@@ -381,10 +381,10 @@ def checkpoint_verified_handoff(receipt_path: Path | None, *, fleet_verified: bo
     with _handoff_lock(home) as acquired:
         if not acquired:
             raise RuntimeError("Update handoff is being settled by another process")
-        handoff = json.loads(path.read_text(encoding="utf-8"))
+        handoff = json.loads(path.read_text(encoding="utf-8-sig"))
         if handoff["owner_pid"] != os.getpid() or not _owner_alive(handoff):
             return
-        handoff["receipt"] = json.loads(receipt_path.read_text(encoding="utf-8"))
+        handoff["receipt"] = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
         if fleet_verified and not handoff["update_complete"]:
             handoff["receipt"].update(outcome="partial", exit_code=1)
         handoff["phase"] = "completed" if fleet_verified else "awaiting_restart_verification"
@@ -404,7 +404,7 @@ def gateway_handoff_fleet_errors(fleet: list[dict]) -> list[str]:
     path = get_process_hermes_home() / HANDOFF_NAME
     if not path.exists():
         return []
-    handoff = json.loads(path.read_text(encoding="utf-8"))
+    handoff = json.loads(path.read_text(encoding="utf-8-sig"))
     if handoff["owner_pid"] != os.getpid() or not _owner_alive(handoff):
         return []
     handoff["targets"] = [target for target in handoff["targets"] if target.get("kind") == "gateway"]
@@ -420,6 +420,6 @@ def retire_gateway_update_handoff() -> None:
     if path.exists():
         with _handoff_lock(home) as acquired:
             if acquired:
-                handoff = json.loads(path.read_text(encoding="utf-8"))
+                handoff = json.loads(path.read_text(encoding="utf-8-sig"))
                 if handoff["owner_pid"] == os.getpid() and _owner_alive(handoff) and handoff["phase"] == "completed":
                     _publish_completion(home, handoff)

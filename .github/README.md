@@ -8,7 +8,7 @@ the Telegram gateway.
   existing lockfile, repository-boundary and applicable security checks.
 - The operations suite covers the fork's install/update channel, stash recovery,
   restart handoff and receipts, reboot approval, Telegram approval buttons and
-  credential redaction. It delegates to `scripts/run_tests.sh` for isolation.
+  credential redaction and custom CA trust. It delegates to `scripts/run_tests.sh` for isolation.
 - If full CI validation is needed after merging an official release, explicitly
   re-enable **CI** and manually run it on `current-ops` with **full** selected. This includes the full Python suite, Python E2E, macOS and
   Windows tests, JS/TS checks, Desktop core E2E, Rust and documentation checks.

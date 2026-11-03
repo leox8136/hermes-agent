@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 exec bash scripts/run_tests.sh \
   tests/agent/test_redact.py \
+  tests/agent/test_ssl_transport_contracts.py \
   tests/tools/test_reboot_approval.py \
   tests/tools/test_hardline_escaped_quote_state.py \
   tests/gateway/test_update_command.py \
