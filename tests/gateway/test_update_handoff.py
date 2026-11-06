@@ -88,7 +88,7 @@ def _stop(proc):
 
 
 async def _exercise(home, monkeypatch, launch, terminate, *, maintenance_ok=True, multiplex=False):
-    import gateway.run as run
+    from gateway import run
     import utils
     from gateway.config import Platform
     from gateway.run_notifications import GatewayNotificationsMixin
@@ -242,9 +242,10 @@ while not (home / "allow-exit").exists():
 @pytest.mark.asyncio
 async def test_systemd_mixed_kills_updater_but_successor_finishes_receipt(tmp_path, monkeypatch):
     import shutil
-    if not shutil.which("systemd-run") or subprocess.run(
-        ["systemctl", "--user", "show-environment"], capture_output=True
-    ).returncode:
+    if not shutil.which("systemd-run") or (await asyncio.to_thread(
+        subprocess.run, ["systemctl", "--user", "show-environment"],
+        capture_output=True, check=False,
+    )).returncode:
         pytest.skip("a user systemd manager is unavailable")
     unit = f"hermes-update-test-{uuid4().hex}.service"
     stopped = False

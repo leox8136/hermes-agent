@@ -32,7 +32,7 @@ def test_repository_stage_clones_fork_channel_and_preserves_explicit_branch(tmp_
     args = ["bash", str(ROOT / "scripts/install.sh"), "--stage", "repository", "--dir", str(destination), "--json"]
     if branch:
         args += ["--branch", branch]
-    result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=45)
+    result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=45, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     assert git("branch", "--show-current", cwd=destination) == (branch or DEFAULT_UPDATE_BRANCH)
     assert DEFAULT_UPDATE_REPO in git("config", "--get", "remote.origin.url", cwd=destination)
